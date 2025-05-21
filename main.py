@@ -1,6 +1,6 @@
 import discord
 import os
-from discord.ext import commands
+from discord.ext import commands, tasks  # เพิ่ม tasks สำหรับทำงานเบื้องหลัง
 from myserver import keep_alive
 
 from PIL import Image, ImageDraw, ImageFont
@@ -20,9 +20,10 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 WELCOME_CHANNEL_ID = 1372511440786817075  
 REGISTER_CHANNEL_ID = 1361242784509726791 
 ADMIN_CHANNEL_ID = 1361241867798446171
+BOT_STATUS_CHANNEL_ID = 1374821568839942258 
 AUTOROLE_ID = 1361182119069749310  
 PLAYER_ROLE_ID = 1361186568416657593
-ADMIN_ROLE_ID = 1360585582832521236 
+ADMIN_ROLE_ID = 1361241867798446171
 BANNER_TEMPLATE = "welcome_SalusaBG2.png"  
 REGISTRATIONS_FILE = "registrations.json"  
 CONFIG_FILE = "config.json"
@@ -42,7 +43,7 @@ def save_registrations(data):
 
 # Load config 
 def load_config():
-    global AUTOROLE_ID, ADMIN_ROLE_ID
+    global AUTOROLE_ID, ADMIN_ROLE_ID, BOT_STATUS_CHANNEL_ID
     try:
         with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
             config = json.load(f)
@@ -50,9 +51,167 @@ def load_config():
                 AUTOROLE_ID = config['AUTOROLE_ID']
             if 'ADMIN_ROLE_ID' in config:
                 ADMIN_ROLE_ID = config['ADMIN_ROLE_ID']
+            if 'BOT_STATUS_CHANNEL_ID' in config:
+                BOT_STATUS_CHANNEL_ID = config['BOT_STATUS_CHANNEL_ID']
     except (FileNotFoundError, json.JSONDecodeError):
         # Use default value 
         pass
+
+# สร้างฟังก์ชันสำหรับแสดงสถานะบอท
+async def generate_bot_status_embed(guild):
+    """สร้าง Embed สำหรับแสดงสถานะของบอททั้งหมด"""
+    # รวบรวมบอททั้งหมดในเซิร์ฟเวอร์
+    bots = [member for member in guild.members if member.bot]
+    
+    # ถ้าไม่มีบอทในเซิร์ฟเวอร์
+    if not bots:
+        embed = discord.Embed(
+            title="📊 สถานะบอทในเซิร์ฟเวอร์",
+            description="ไม่พบบอทในเซิร์ฟเวอร์นี้",
+            color=discord.Color.blue(),
+            timestamp=datetime.now()
+        )
+        return embed
+    
+    # สร้าง embed สำหรับแสดงสถานะบอท
+    embed = discord.Embed(
+        title="📊 สถานะบอทในเซิร์ฟเวอร์",
+        description=f"พบบอททั้งหมด {len(bots)} ตัว",
+        color=discord.Color.blue(),
+        timestamp=datetime.now()
+    )
+    
+    # เพิ่มไอคอนสำหรับแต่ละสถานะ
+    status_icons = {
+        discord.Status.online: "🟢 ออนไลน์",
+        discord.Status.idle: "🟡 ไม่อยู่",
+        discord.Status.dnd: "🔴 ห้ามรบกวน",
+        discord.Status.offline: "⚫ ออฟไลน์",
+        discord.Status.invisible: "⚪ ซ่อนตัว",
+        None: "⚫ ไม่ทราบสถานะ"
+    }
+    
+    # เรียงลำดับบอทตามสถานะ: ออนไลน์ -> ไม่อยู่ -> ห้ามรบกวน -> ออฟไลน์
+    status_order = {
+        discord.Status.online: 0,
+        discord.Status.idle: 1,
+        discord.Status.dnd: 2,
+        discord.Status.offline: 3,
+        discord.Status.invisible: 4,
+        None: 5
+    }
+    
+    sorted_bots = sorted(bots, key=lambda bot: (status_order.get(bot.status, 5), bot.name.lower()))
+    
+    # เพิ่มข้อมูลบอทแต่ละตัวลงใน embed
+    for bot in sorted_bots:
+        status_text = status_icons.get(bot.status, status_icons[None])
+        
+        # ตรวจสอบกิจกรรมของบอท
+        activity_text = ""
+        if bot.activity:
+            activity_type = {
+                discord.ActivityType.playing: "กำลังเล่น",
+                discord.ActivityType.streaming: "กำลังสตรีม",
+                discord.ActivityType.listening: "กำลังฟัง",
+                discord.ActivityType.watching: "กำลังดู",
+                discord.ActivityType.custom: "",
+                discord.ActivityType.competing: "กำลังแข่งขัน"
+            }.get(bot.activity.type, "")
+            
+            if activity_type:
+                activity_text = f"{activity_type} {bot.activity.name}"
+            elif isinstance(bot.activity, discord.CustomActivity) and bot.activity.name:
+                activity_text = bot.activity.name
+        
+        # สร้างข้อความสถานะ
+        status_display = status_text
+        if activity_text:
+            status_display += f" | {activity_text}"
+        
+        embed.add_field(
+            name=f"{bot.display_name}",
+            value=status_display,
+            inline=False
+        )
+    
+    embed.set_footer(text=f"อัปเดตล่าสุด: {datetime.now().strftime('%H:%M:%S')}")
+    
+    return embed
+
+# สร้างฟังก์ชันสำหรับอัปเดตข้อความสถานะบอท
+async def update_bot_status_message(guild):
+    """อัปเดตข้อความสถานะบอทในช่องที่กำหนด"""
+    channel = bot.get_channel(BOT_STATUS_CHANNEL_ID)
+    if not channel:
+        print(f"ไม่พบช่องสำหรับแสดงสถานะบอท (ID: {BOT_STATUS_CHANNEL_ID})")
+        return
+    
+    # ตรวจสอบว่ามีข้อความสถานะอยู่แล้วหรือไม่
+    status_message = None
+    async for message in channel.history(limit=50):
+        if message.author == bot.user and message.embeds and "สถานะบอทในเซิร์ฟเวอร์" in message.embeds[0].title:
+            status_message = message
+            break
+    
+    # สร้าง embed สถานะบอท
+    embed = await generate_bot_status_embed(guild)
+    
+    # อัปเดตหรือส่งข้อความใหม่
+    if status_message:
+        await status_message.edit(embed=embed)
+    else:
+        await channel.send(embed=embed)
+
+# สร้างงานในเบื้องหลังสำหรับอัปเดตสถานะบอทเป็นระยะ
+@tasks.loop(minutes=5)  # อัปเดตทุก 5 นาที
+async def bot_status_task():
+    """งานในเบื้องหลังสำหรับอัปเดตสถานะบอทเป็นระยะ"""
+    for guild in bot.guilds:
+        await update_bot_status_message(guild)
+
+# รอให้บอทพร้อมก่อนเริ่มงานในเบื้องหลัง
+@bot_status_task.before_loop
+async def before_bot_status_task():
+    """รอให้บอทพร้อมก่อนเริ่มงานในเบื้องหลัง"""
+    await bot.wait_until_ready()
+
+# เพิ่มคำสั่งสำหรับตั้งค่าช่องแสดงสถานะบอท
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def setbotstatuschannel(ctx, channel: discord.TextChannel = None):
+    """ตั้งค่าช่องสำหรับแสดงสถานะบอทอัตโนมัติ"""
+    global BOT_STATUS_CHANNEL_ID
+    if channel is None:
+        # ถ้าไม่ระบุช่อง จะแสดงช่องปัจจุบัน
+        current_channel = bot.get_channel(BOT_STATUS_CHANNEL_ID)
+        if current_channel:
+            await ctx.send(f"ช่องแสดงสถานะบอทปัจจุบันคือ: {current_channel.mention}")
+        else:
+            await ctx.send("ไม่ได้ตั้งค่าช่องแสดงสถานะบอท")
+        return
+    
+    # สร้างหรือโหลดไฟล์การตั้งค่า
+    try:
+        with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        config = {}
+    
+    # อัปเดตค่า BOT_STATUS_CHANNEL_ID
+    config['BOT_STATUS_CHANNEL_ID'] = channel.id
+    
+    # บันทึกการตั้งค่า
+    with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+        json.dump(config, f, ensure_ascii=False, indent=4)
+    
+    # อัปเดตค่า BOT_STATUS_CHANNEL_ID
+    BOT_STATUS_CHANNEL_ID = channel.id
+    
+    # สร้างข้อความสถานะบอทในช่องใหม่ทันที
+    await update_bot_status_message(ctx.guild)
+    
+    await ctx.send(f"ตั้งค่าช่องแสดงสถานะบอทเป็น {channel.mention} สำเร็จ")
 
 # Create registrations form Modal
 class RegistrationForm(ui.Modal, title="ลงทะเบียนผู้เล่น SALUSA"):
@@ -288,6 +447,9 @@ async def on_ready():
     """เรียกเมื่อบอทเริ่มทำงานและพร้อมใช้งาน"""
     print(f'{bot.user.name} พร้อมใช้งานแล้ว!')
     
+    # เริ่มงานในเบื้องหลังสำหรับอัปเดตสถานะบอท
+    bot_status_task.start()
+    
     # ตรวจสอบและสร้างข้อความลงทะเบียนในช่องลงทะเบียน
     register_channel = bot.get_channel(REGISTER_CHANNEL_ID)
     if register_channel:
@@ -309,6 +471,10 @@ async def on_ready():
         )
         
         await register_channel.send(embed=embed, view=RegisterButton())
+    
+    # สร้างข้อความสถานะบอทเมื่อบอทเริ่มทำงาน
+    for guild in bot.guilds:
+        await update_bot_status_message(guild)
 
 @bot.event
 async def on_member_join(member):
@@ -490,6 +656,167 @@ async def registrations(ctx):
     
     await ctx.send(embed=embed)
 
+@bot.command(name="botstatus", aliases=["botsstatus", "botsonline"])
+async def bot_status(ctx, bot_name: str = None):
+    """แสดงสถานะออนไลน์ของบอทอื่นๆ ในเซิร์ฟเวอร์"""
+    # รวบรวมบอททั้งหมดในเซิร์ฟเวอร์
+    bots = [member for member in ctx.guild.members if member.bot]
+    
+    if bot_name:
+        # ค้นหาบอทตามชื่อที่ระบุ (ค้นหาแบบไม่คำนึงถึงตัวพิมพ์ใหญ่-เล็ก)
+        filtered_bots = [bot for bot in bots if bot_name.lower() in bot.name.lower() or bot_name.lower() in bot.display_name.lower()]
+        if not filtered_bots:
+            await ctx.send(f"ไม่พบบอทที่มีชื่อว่า '{bot_name}'")
+            return
+        bots = filtered_bots
+    
+    # ถ้าไม่มีบอทในเซิร์ฟเวอร์
+    if not bots:
+        await ctx.send("ไม่พบบอทในเซิร์ฟเวอร์นี้")
+        return
+    
+    # สร้าง embed สำหรับแสดงสถานะบอท
+    embed = discord.Embed(
+        title="📊 สถานะบอทในเซิร์ฟเวอร์",
+        description=f"พบบอททั้งหมด {len(bots)} ตัว",
+        color=discord.Color.blue(),
+        timestamp=datetime.now()
+    )
+    
+    # เพิ่มไอคอนสำหรับแต่ละสถานะ
+    status_icons = {
+        discord.Status.online: "🟢 ออนไลน์",
+        discord.Status.idle: "🟡 ไม่อยู่",
+        discord.Status.dnd: "🔴 ห้ามรบกวน",
+        discord.Status.offline: "⚫ ออฟไลน์",
+        discord.Status.invisible: "⚪ ซ่อนตัว",
+        None: "⚫ ไม่ทราบสถานะ"
+    }
+    
+    # เรียงลำดับบอทตามสถานะ: ออนไลน์ -> ไม่อยู่ -> ห้ามรบกวน -> ออฟไลน์
+    status_order = {
+        discord.Status.online: 0,
+        discord.Status.idle: 1,
+        discord.Status.dnd: 2,
+        discord.Status.offline: 3,
+        discord.Status.invisible: 4,
+        None: 5
+    }
+    
+    sorted_bots = sorted(bots, key=lambda bot: (status_order.get(bot.status, 5), bot.name.lower()))
+    
+    # เพิ่มข้อมูลบอทแต่ละตัวลงใน embed
+    for bot in sorted_bots:
+        status_text = status_icons.get(bot.status, status_icons[None])
+        
+        # ตรวจสอบกิจกรรมของบอท
+        activity_text = ""
+        if bot.activity:
+            activity_type = {
+                discord.ActivityType.playing: "กำลังเล่น",
+                discord.ActivityType.streaming: "กำลังสตรีม",
+                discord.ActivityType.listening: "กำลังฟัง",
+                discord.ActivityType.watching: "กำลังดู",
+                discord.ActivityType.custom: "",
+                discord.ActivityType.competing: "กำลังแข่งขัน"
+            }.get(bot.activity.type, "")
+            
+            if activity_type:
+                activity_text = f"{activity_type} {bot.activity.name}"
+            elif isinstance(bot.activity, discord.CustomActivity) and bot.activity.name:
+                activity_text = bot.activity.name
+        
+        # สร้างข้อความสถานะ
+        status_display = status_text
+        if activity_text:
+            status_display += f" | {activity_text}"
+        
+        embed.add_field(
+            name=f"{bot.display_name}",
+            value=status_display,
+            inline=False
+        )
+    
+    embed.set_footer(text=f"อัปเดตล่าสุด: {datetime.now().strftime('%H:%M:%S')}")
+    
+    await ctx.send(embed=embed)
+
+@bot.command(name="botinfo")
+async def bot_info(ctx, *, bot_name: str):
+    """แสดงข้อมูลละเอียดของบอทที่ระบุ"""
+    # ค้นหาบอทตามชื่อ
+    found_bots = []
+    for member in ctx.guild.members:
+        if member.bot and (bot_name.lower() in member.name.lower() or bot_name.lower() in member.display_name.lower()):
+            found_bots.append(member)
+    
+    if not found_bots:
+        await ctx.send(f"ไม่พบบอทที่มีชื่อว่า '{bot_name}'")
+        return
+    
+    # ถ้าพบหลายบอท ให้แสดงบอทแรกที่พบ
+    target_bot = found_bots[0]
+    
+    # สร้าง embed สำหรับแสดงข้อมูลบอท
+    embed = discord.Embed(
+        title=f"ข้อมูลบอท: {target_bot.display_name}",
+        color=target_bot.color,
+        timestamp=datetime.now()
+    )
+    
+    # เพิ่มรูปโปรไฟล์ของบอท
+    if target_bot.avatar:
+        embed.set_thumbnail(url=target_bot.avatar.url)
+    
+    # สถานะออนไลน์
+    status_icons = {
+        discord.Status.online: "🟢 ออนไลน์",
+        discord.Status.idle: "🟡 ไม่อยู่",
+        discord.Status.dnd: "🔴 ห้ามรบกวน",
+        discord.Status.offline: "⚫ ออฟไลน์",
+        discord.Status.invisible: "⚪ ซ่อนตัว",
+        None: "⚫ ไม่ทราบสถานะ"
+    }
+    embed.add_field(name="สถานะ", value=status_icons.get(target_bot.status, status_icons[None]), inline=True)
+    
+    # ไอดีของบอท
+    embed.add_field(name="ID", value=target_bot.id, inline=True)
+    
+    # วันที่เข้าร่วมเซิร์ฟเวอร์
+    joined_at = target_bot.joined_at.strftime("%Y-%m-%d %H:%M:%S") if target_bot.joined_at else "ไม่ทราบ"
+    embed.add_field(name="เข้าร่วมเมื่อ", value=joined_at, inline=True)
+    
+    # วันที่สร้างบัญชี
+    created_at = target_bot.created_at.strftime("%Y-%m-%d %H:%M:%S") if target_bot.created_at else "ไม่ทราบ"
+    embed.add_field(name="สร้างเมื่อ", value=created_at, inline=True)
+    
+    # กิจกรรมปัจจุบัน
+    activity_text = "ไม่มีกิจกรรม"
+    if target_bot.activity:
+        activity_type = {
+            discord.ActivityType.playing: "กำลังเล่น",
+            discord.ActivityType.streaming: "กำลังสตรีม",
+            discord.ActivityType.listening: "กำลังฟัง",
+            discord.ActivityType.watching: "กำลังดู",
+            discord.ActivityType.custom: "",
+            discord.ActivityType.competing: "กำลังแข่งขัน"
+        }.get(target_bot.activity.type, "")
+        
+        if activity_type:
+            activity_text = f"{activity_type} {target_bot.activity.name}"
+        elif isinstance(target_bot.activity, discord.CustomActivity) and target_bot.activity.name:
+            activity_text = target_bot.activity.name
+    
+    embed.add_field(name="กิจกรรม", value=activity_text, inline=True)
+    
+    # บทบาททั้งหมด
+    roles = [role.mention for role in target_bot.roles if role.name != "@everyone"]
+    roles_text = ", ".join(roles) if roles else "ไม่มีบทบาท"
+    embed.add_field(name="บทบาท", value=roles_text, inline=False)
+    
+    await ctx.send(embed=embed)
+
+# งานหลักตอนเริ่มบอท
 load_config()
 keep_alive()
 
