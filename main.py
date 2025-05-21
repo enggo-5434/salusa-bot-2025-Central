@@ -1,6 +1,6 @@
 import discord
-from discord.ext import commands
 import os
+from discord.ext import commands
 from myserver import keep_alive
 
 from PIL import Image, ImageDraw, ImageFont
@@ -17,7 +17,6 @@ intents.message_content = True  # Read text
 
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-DICCORD_TOKEN = os.getenv['discordkey']
 WELCOME_CHANNEL_ID = 1373205440447512586  
 REGISTER_CHANNEL_ID = 1373213439681364099 
 ADMIN_CHANNEL_ID = 1373215843567140954
@@ -458,8 +457,7 @@ async def registrations(ctx):
     
     await ctx.send(embed=embed)
 
-# โหลดการตั้งค่าเมื่อเริ่มต้นโปรแกรม
 load_config()
 keep_alive()
 
-bot.run(DICCORD_TOKEN)
+bot.run(os.getenv('discordkey'))
