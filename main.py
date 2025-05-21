@@ -10,9 +10,11 @@ import json
 from discord import ui
 from datetime import datetime
 
+# แก้ไขส่วน intents ให้เพิ่ม presence intent
 intents = discord.Intents.default()
 intents.members = True  # new member in Dis
 intents.message_content = True  # Read text
+intents.presences = True  # เพิ่ม presence intent เพื่อให้สามารถตรวจจับสถานะของบอทอื่นๆ ได้
 
 
 bot = commands.Bot(command_prefix='!', intents=intents)
@@ -57,7 +59,7 @@ def load_config():
         # Use default value 
         pass
 
-# สร้างฟังก์ชันสำหรับแสดงสถานะบอท
+# ปรับปรุงฟังก์ชันสำหรับแสดงสถานะบอท
 async def generate_bot_status_embed(guild):
     """สร้าง Embed สำหรับแสดงสถานะของบอททั้งหมด"""
     # รวบรวมบอททั้งหมดในเซิร์ฟเวอร์
@@ -101,39 +103,75 @@ async def generate_bot_status_embed(guild):
         None: 5
     }
     
-    sorted_bots = sorted(bots, key=lambda bot: (status_order.get(bot.status, 5), bot.name.lower()))
+    # แยกบอทตามสถานะก่อนนำมาแสดงผล
+    online_bots = []
+    offline_bots = []
     
-    # เพิ่มข้อมูลบอทแต่ละตัวลงใน embed
-    for bot in sorted_bots:
-        status_text = status_icons.get(bot.status, status_icons[None])
-        
-        # ตรวจสอบกิจกรรมของบอท
-        activity_text = ""
-        if bot.activity:
-            activity_type = {
-                discord.ActivityType.playing: "กำลังเล่น",
-                discord.ActivityType.streaming: "กำลังสตรีม",
-                discord.ActivityType.listening: "กำลังฟัง",
-                discord.ActivityType.watching: "กำลังดู",
-                discord.ActivityType.custom: "",
-                discord.ActivityType.competing: "กำลังแข่งขัน"
-            }.get(bot.activity.type, "")
-            
-            if activity_type:
-                activity_text = f"{activity_type} {bot.activity.name}"
-            elif isinstance(bot.activity, discord.CustomActivity) and bot.activity.name:
-                activity_text = bot.activity.name
-        
-        # สร้างข้อความสถานะ
-        status_display = status_text
-        if activity_text:
-            status_display += f" | {activity_text}"
-        
+    for bot in bots:
+        if bot.status == discord.Status.offline or bot.status is None:
+            offline_bots.append(bot)
+        else:
+            online_bots.append(bot)
+    
+    # เรียงลำดับบอทแต่ละกลุ่มตามชื่อ
+    online_bots.sort(key=lambda b: b.name.lower())
+    offline_bots.sort(key=lambda b: b.name.lower())
+    
+    # เพิ่มหัวข้อสำหรับบอทออนไลน์
+    if online_bots:
         embed.add_field(
-            name=f"{bot.display_name}",
-            value=status_display,
+            name="🟢 บอทที่ออนไลน์",
+            value="บอทต่อไปนี้กำลังทำงานอยู่",
             inline=False
         )
+        
+        # เพิ่มข้อมูลบอทออนไลน์
+        for bot in online_bots:
+            status_text = status_icons.get(bot.status, "🟢 ออนไลน์")  # เพิ่มค่าเริ่มต้นเพื่อป้องกันกรณีสถานะ None
+            
+            # ตรวจสอบกิจกรรมของบอท
+            activity_text = ""
+            if bot.activity:
+                activity_type = {
+                    discord.ActivityType.playing: "กำลังเล่น",
+                    discord.ActivityType.streaming: "กำลังสตรีม",
+                    discord.ActivityType.listening: "กำลังฟัง",
+                    discord.ActivityType.watching: "กำลังดู",
+                    discord.ActivityType.custom: "",
+                    discord.ActivityType.competing: "กำลังแข่งขัน"
+                }.get(bot.activity.type, "")
+                
+                if activity_type:
+                    activity_text = f"{activity_type} {bot.activity.name}"
+                elif isinstance(bot.activity, discord.CustomActivity) and bot.activity.name:
+                    activity_text = bot.activity.name
+            
+            # สร้างข้อความสถานะ
+            status_display = status_text
+            if activity_text:
+                status_display += f" | {activity_text}"
+            
+            embed.add_field(
+                name=f"{bot.display_name}",
+                value=status_display,
+                inline=False
+            )
+    
+    # เพิ่มหัวข้อสำหรับบอทออฟไลน์
+    if offline_bots:
+        embed.add_field(
+            name="⚫ บอทที่ออฟไลน์",
+            value="บอทต่อไปนี้ไม่ได้ทำงานอยู่",
+            inline=False
+        )
+        
+        # เพิ่มข้อมูลบอทออฟไลน์
+        for bot in offline_bots:
+            embed.add_field(
+                name=f"{bot.display_name}",
+                value="⚫ ออฟไลน์",
+                inline=False
+            )
     
     embed.set_footer(text=f"อัปเดตล่าสุด: {datetime.now().strftime('%H:%M:%S')}")
     
@@ -163,8 +201,8 @@ async def update_bot_status_message(guild):
     else:
         await channel.send(embed=embed)
 
-# สร้างงานในเบื้องหลังสำหรับอัปเดตสถานะบอทเป็นระยะ
-@tasks.loop(minutes=5)  # อัปเดตทุก 5 นาที
+# ปรับความถี่การอัปเดตสถานะบอท
+@tasks.loop(minutes=2)  # อัปเดตทุก 2 นาทีเพื่อให้เห็นการเปลี่ยนแปลงเร็วขึ้น
 async def bot_status_task():
     """งานในเบื้องหลังสำหรับอัปเดตสถานะบอทเป็นระยะ"""
     for guild in bot.guilds:
@@ -212,6 +250,15 @@ async def setbotstatuschannel(ctx, channel: discord.TextChannel = None):
     await update_bot_status_message(ctx.guild)
     
     await ctx.send(f"ตั้งค่าช่องแสดงสถานะบอทเป็น {channel.mention} สำเร็จ")
+
+# เพิ่มคำสั่งสำหรับบังคับอัปเดตสถานะบอททันที
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def updatebotstatus(ctx):
+    """บังคับอัปเดตสถานะบอททันที"""
+    await ctx.send("กำลังอัปเดตสถานะบอท...")
+    await update_bot_status_message(ctx.guild)
+    await ctx.send("อัปเดตสถานะบอทเรียบร้อยแล้ว")
 
 # Create registrations form Modal
 class RegistrationForm(ui.Modal, title="ลงทะเบียนผู้เล่น SALUSA"):
@@ -683,59 +730,83 @@ async def bot_status(ctx, bot_name: str = None):
         timestamp=datetime.now()
     )
     
-    # เพิ่มไอคอนสำหรับแต่ละสถานะ
-    status_icons = {
-        discord.Status.online: "🟢 ออนไลน์",
-        discord.Status.idle: "🟡 ไม่อยู่",
-        discord.Status.dnd: "🔴 ห้ามรบกวน",
-        discord.Status.offline: "⚫ ออฟไลน์",
-        discord.Status.invisible: "⚪ ซ่อนตัว",
-        None: "⚫ ไม่ทราบสถานะ"
-    }
+    # แยกบอทตามสถานะ
+    online_bots = []
+    offline_bots = []
     
-    # เรียงลำดับบอทตามสถานะ: ออนไลน์ -> ไม่อยู่ -> ห้ามรบกวน -> ออฟไลน์
-    status_order = {
-        discord.Status.online: 0,
-        discord.Status.idle: 1,
-        discord.Status.dnd: 2,
-        discord.Status.offline: 3,
-        discord.Status.invisible: 4,
-        None: 5
-    }
+    for bot in bots:
+        if bot.status == discord.Status.offline or bot.status is None:
+            offline_bots.append(bot)
+        else:
+            online_bots.append(bot)
     
-    sorted_bots = sorted(bots, key=lambda bot: (status_order.get(bot.status, 5), bot.name.lower()))
+    # เรียงลำดับบอทแต่ละกลุ่มตามชื่อ
+    online_bots.sort(key=lambda b: b.name.lower())
+    offline_bots.sort(key=lambda b: b.name.lower())
     
-    # เพิ่มข้อมูลบอทแต่ละตัวลงใน embed
-    for bot in sorted_bots:
-        status_text = status_icons.get(bot.status, status_icons[None])
-        
-        # ตรวจสอบกิจกรรมของบอท
-        activity_text = ""
-        if bot.activity:
-            activity_type = {
-                discord.ActivityType.playing: "กำลังเล่น",
-                discord.ActivityType.streaming: "กำลังสตรีม",
-                discord.ActivityType.listening: "กำลังฟัง",
-                discord.ActivityType.watching: "กำลังดู",
-                discord.ActivityType.custom: "",
-                discord.ActivityType.competing: "กำลังแข่งขัน"
-            }.get(bot.activity.type, "")
-            
-            if activity_type:
-                activity_text = f"{activity_type} {bot.activity.name}"
-            elif isinstance(bot.activity, discord.CustomActivity) and bot.activity.name:
-                activity_text = bot.activity.name
-        
-        # สร้างข้อความสถานะ
-        status_display = status_text
-        if activity_text:
-            status_display += f" | {activity_text}"
-        
+    # เพิ่มหัวข้อสำหรับบอทออนไลน์
+    if online_bots:
         embed.add_field(
-            name=f"{bot.display_name}",
-            value=status_display,
+            name="🟢 บอทที่ออนไลน์",
+            value="บอทต่อไปนี้กำลังทำงานอยู่",
             inline=False
         )
+        
+        # เพิ่มข้อมูลบอทออนไลน์
+        for bot in online_bots:
+            # ไอคอนสำหรับแต่ละสถานะ
+            status_icons = {
+                discord.Status.online: "🟢 ออนไลน์",
+                discord.Status.idle: "🟡 ไม่อยู่",
+                discord.Status.dnd: "🔴 ห้ามรบกวน",
+                None: "🟢 ออนไลน์"  # กรณีไม่สามารถตรวจจับสถานะได้ แต่รู้ว่าไม่ได้ออฟไลน์
+            }
+            
+            status_text = status_icons.get(bot.status, "🟢 ออนไลน์")
+            
+            # ตรวจสอบกิจกรรมของบอท
+            activity_text = ""
+            if bot.activity:
+                activity_type = {
+                    discord.ActivityType.playing: "กำลังเล่น",
+                    discord.ActivityType.streaming: "กำลังสตรีม",
+                    discord.ActivityType.listening: "กำลังฟัง",
+                    discord.ActivityType.watching: "กำลังดู",
+                    discord.ActivityType.custom: "",
+                    discord.ActivityType.competing: "กำลังแข่งขัน"
+                }.get(bot.activity.type, "")
+                
+                if activity_type:
+                    activity_text = f"{activity_type} {bot.activity.name}"
+                elif isinstance(bot.activity, discord.CustomActivity) and bot.activity.name:
+                    activity_text = bot.activity.name
+            
+            # สร้างข้อความสถานะ
+            status_display = status_text
+            if activity_text:
+                status_display += f" | {activity_text}"
+            
+            embed.add_field(
+                name=f"{bot.display_name}",
+                value=status_display,
+                inline=False
+            )
+    
+    # เพิ่มหัวข้อสำหรับบอทออฟไลน์
+    if offline_bots:
+        embed.add_field(
+            name="⚫ บอทที่ออฟไลน์",
+            value="บอทต่อไปนี้ไม่ได้ทำงานอยู่",
+            inline=False
+        )
+        
+        # เพิ่มข้อมูลบอทออฟไลน์
+        for bot in offline_bots:
+            embed.add_field(
+                name=f"{bot.display_name}",
+                value="⚫ ออฟไลน์",
+                inline=False
+            )
     
     embed.set_footer(text=f"อัปเดตล่าสุด: {datetime.now().strftime('%H:%M:%S')}")
     
