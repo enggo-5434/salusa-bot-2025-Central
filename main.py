@@ -21,13 +21,11 @@ WELCOME_CHANNEL_ID = 1372511440786817075
 REGISTER_CHANNEL_ID = 1361242784509726791 
 ADMIN_CHANNEL_ID = 1361241867798446171
 AUTOROLE_ID = 1361182119069749310  
-PLAYER_ROLE_ID = 1361186568416657593  
+PLAYER_ROLE_ID = 1361186568416657593
+ADMIN_ROLE_ID = 1360585582832521236 
 BANNER_TEMPLATE = "welcome_SalusaBG2.png"  
 REGISTRATIONS_FILE = "registrations.json"  
 CONFIG_FILE = "config.json"
-
-# Track registration submissions to prevent duplicates
-registration_submissions = set()
 
 # Load all log registrations
 def load_registrations():
@@ -44,12 +42,14 @@ def save_registrations(data):
 
 # Load config 
 def load_config():
-    global AUTOROLE_ID
+    global AUTOROLE_ID, ADMIN_ROLE_ID
     try:
         with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
             config = json.load(f)
             if 'AUTOROLE_ID' in config:
                 AUTOROLE_ID = config['AUTOROLE_ID']
+            if 'ADMIN_ROLE_ID' in config:
+                ADMIN_ROLE_ID = config['ADMIN_ROLE_ID']
     except (FileNotFoundError, json.JSONDecodeError):
         # Use default value 
         pass
@@ -63,20 +63,6 @@ class RegistrationForm(ui.Modal, title="ลงทะเบียนผู้เ�
     server_rules = ui.TextInput(label="จะเกิดอะไรขึ้นหากทิ้งรถไว้ในโซนต้องห้าม", placeholder="[ตัวอย่าง: ได้รับเงิน SD 3000]", required=True)
 
     async def on_submit(self, interaction: discord.Interaction):
-        global registration_submissions
-        # Check if this is a duplicate submission
-        submission_id = f"{interaction.user.id}_{datetime.now().strftime('%Y%m%d')}"
-        if submission_id in registration_submissions:
-            # This is a duplicate - just acknowledge the interaction
-            await interaction.response.send_message(
-                "ข้อมูลของคุณกำลังถูกประมวลผล โปรดรอสักครู่...", 
-                ephemeral=True
-            )
-            return
-            
-        # Add to tracked submissions
-        registration_submissions.add(submission_id)
-        
         try:
             # รวบรวมข้อมูล
             user_data = {
@@ -92,18 +78,27 @@ class RegistrationForm(ui.Modal, title="ลงทะเบียนผู้เ�
             
             # บันทึกข้อมูลลงในไฟล์
             registrations = load_registrations()
+            
+            # ตรวจสอบว่าข้อมูลเดิมมีอยู่แล้วหรือไม่ (อนุญาตให้ส่งซ้ำได้)
+            if str(interaction.user.id) in registrations:
+                update_message = "ข้อมูลลงทะเบียนของคุณได้รับการอัปเดตแล้ว! ทีมงานจะตรวจสอบข้อมูลของคุณเร็วๆ นี้"
+            else:
+                update_message = "ขอบคุณสำหรับการลงทะเบียน! ทีมงานจะตรวจสอบข้อมูลของคุณเร็วๆ นี้"
+                
+            # บันทึกหรืออัปเดตข้อมูล
             registrations[str(interaction.user.id)] = user_data
             save_registrations(registrations)
             
             # ตอบกลับผู้ใช้
             await interaction.response.send_message(
-                "ขอบคุณสำหรับการลงทะเบียน! ทีมงานจะตรวจสอบข้อมูลของคุณเร็วๆ นี้", 
+                update_message, 
                 ephemeral=True
             )
             
             # ส่งแจ้งเตือนไปยังช่องทีมงาน (แยกออกจาก interaction response)
             admin_channel = bot.get_channel(ADMIN_CHANNEL_ID)
             if admin_channel:
+                # สร้าง embed สำหรับข้อมูลการลงทะเบียน
                 embed = discord.Embed(
                     title="การลงทะเบียนใหม่",
                     description=f"ผู้ใช้ {interaction.user.mention} ได้ส่งคำขอลงทะเบียน",
@@ -117,12 +112,17 @@ class RegistrationForm(ui.Modal, title="ลงทะเบียนผู้เ�
                 
                 # สร้างปุ่มอนุมัติและปฏิเสธ
                 view = AdminActionView(interaction.user.id)
-                await admin_channel.send(embed=embed, view=view)
+                
+                # เพิ่ม mention admin role ในข้อความ
+                admin_role_mention = f"<@&{ADMIN_ROLE_ID}>"
+                await admin_channel.send(
+                    f"{admin_role_mention} มีการลงทะเบียนใหม่ที่รอการอนุมัติ!", 
+                    embed=embed, 
+                    view=view
+                )
         
         except Exception as e:
             print(f"Error processing registration: {str(e)}")
-            # Remove from tracking if there was an error
-            registration_submissions.discard(submission_id)
             try:
                 await interaction.response.send_message(
                     "เกิดข้อผิดพลาดในการลงทะเบียน โปรดลองใหม่อีกครั้ง", 
@@ -383,7 +383,7 @@ async def create_welcome_banner(member):
         watermark_font = ImageFont.load_default()
     
     draw.text((512, 365), "Welcome into SALUSA", fill=(255, 255, 255, 255), font=title_font, anchor="mm")
-    draw.text((512, 420), f"{member.name}", fill=(230, 126, 32, 255), font=user_font, anchor="mm")
+    draw.text((512, 420), f"{member.display_name}", fill=(230, 126, 32, 255), font=user_font, anchor="mm")
     
     watermark_text = "©2025 All Rights Reserved, Salusa"
     watermark_color = (255, 255, 255, 255) 
@@ -431,6 +431,39 @@ async def setautorole(ctx, role: discord.Role = None):
     AUTOROLE_ID = role.id
     
     await ctx.send(f"ตั้งค่า Auto Role เป็น {role.mention} สำเร็จ")
+
+# เพิ่มคำสั่งสำหรับตั้งค่า Admin Role
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def setadminrole(ctx, role: discord.Role = None):
+    """ตั้งค่า Admin Role ที่จะถูก mention เมื่อมีการลงทะเบียนใหม่"""
+    if role is None:
+        # ถ้าไม่ระบุ Role จะแสดง Role ปัจจุบัน
+        current_role = ctx.guild.get_role(ADMIN_ROLE_ID)
+        if current_role:
+            await ctx.send(f"Admin Role ปัจจุบันคือ: {current_role.mention}")
+        else:
+            await ctx.send("ไม่ได้ตั้งค่า Admin Role")
+        return
+    
+    # สร้างหรือโหลดไฟล์การตั้งค่า
+    try:
+        with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        config = {}
+    
+    # อัปเดตค่า ADMIN_ROLE_ID
+    config['ADMIN_ROLE_ID'] = role.id
+    
+    # บันทึกการตั้งค่า
+    with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+        json.dump(config, f, ensure_ascii=False, indent=4)
+    
+    # อัปเดตค่า ADMIN_ROLE_ID โดยใช้ตัวแปรที่ประกาศเป็น global ไว้แล้วตั้งแต่ต้น
+    ADMIN_ROLE_ID = role.id
+    
+    await ctx.send(f"ตั้งค่า Admin Role เป็น {role.mention} สำเร็จ")
 
 # คำสั่งสำหรับทีมงานในการจัดการการลงทะเบียน
 @bot.command()
