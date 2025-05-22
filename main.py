@@ -30,6 +30,9 @@ BANNER_TEMPLATE = "welcome_SalusaBG2.png"
 REGISTRATIONS_FILE = "registrations.json"  
 CONFIG_FILE = "config.json"
 
+# เพิ่มตัวแปรสำหรับเก็บสถานะบอทก่อนหน้า
+bot_status_cache = {}
+
 # Load all log registrations
 def load_registrations():
     try:
@@ -58,6 +61,55 @@ def load_config():
     except (FileNotFoundError, json.JSONDecodeError):
         # Use default value 
         pass
+
+# ฟังก์ชันเพื่อสร้าง cache key สำหรับบอท
+def get_bot_cache_key(bot_member):
+    """สร้าง key สำหรับ cache ข้อมูลบอท"""
+    activity_info = None
+    if bot_member.activity:
+        activity_info = {
+            'type': bot_member.activity.type,
+            'name': bot_member.activity.name
+        }
+    
+    return {
+        'status': bot_member.status,
+        'activity': activity_info
+    }
+
+# ฟังก์ชันตรวจสอบว่าสถานะบอทเปลี่ยนแปลงหรือไม่  
+def has_bot_status_changed(guild):
+    """ตรวจสอบว่ามีการเปลี่ยนแปลงสถานะของบอทหรือไม่"""
+    current_bots = [member for member in guild.members if member.bot]
+    
+    # ถ้าจำนวนบอทเปลี่ยน
+    if len(current_bots) != len(bot_status_cache.get(guild.id, {})):
+        return True
+    
+    # ตรวจสอบสถานะของแต่ละบอท
+    for bot_member in current_bots:
+        bot_id = bot_member.id
+        current_status = get_bot_cache_key(bot_member)
+        cached_status = bot_status_cache.get(guild.id, {}).get(bot_id)
+        
+        if cached_status != current_status:
+            return True
+    
+    return False
+
+# ฟังก์ชันอัพเดต cache สถานะบอท
+def update_bot_status_cache(guild):
+    """อัพเดต cache สถานะของบอททั้งหมดในเซิร์ฟเวอร์"""
+    if guild.id not in bot_status_cache:
+        bot_status_cache[guild.id] = {}
+    
+    current_bots = [member for member in guild.members if member.bot]
+    new_cache = {}
+    
+    for bot_member in current_bots:
+        new_cache[bot_member.id] = get_bot_cache_key(bot_member)
+    
+    bot_status_cache[guild.id] = new_cache
 
 # ปรับปรุงฟังก์ชันสำหรับแสดงสถานะบอท
 async def generate_bot_status_embed(guild):
@@ -184,13 +236,17 @@ async def generate_bot_status_embed(guild):
     
     return embed
 
-# สร้างฟังก์ชันสำหรับอัปเดตข้อความสถานะบอท
-async def update_bot_status_message(guild):
-    """อัปเดตข้อความสถานะบอทในช่องที่กำหนด"""
+# สร้างฟังก์ชันสำหรับอัปเดตข้อความสถานะบอท (ปรับปรุงให้ตรวจสอบการเปลี่ยนแปลงก่อน)
+async def update_bot_status_message(guild, force_update=False):
+    """อัปเดตข้อความสถานะบอทในช่องที่กำหนด (เฉพาะเมื่อมีการเปลี่ยนแปลง)"""
     channel = bot.get_channel(BOT_STATUS_CHANNEL_ID)
     if not channel:
         print(f"ไม่พบช่องสำหรับแสดงสถานะบอท (ID: {BOT_STATUS_CHANNEL_ID})")
         return
+    
+    # ตรวจสอบการเปลี่ยนแปลงก่อนอัพเดต (ยกเว้นกรณีบังคับอัพเดต)
+    if not force_update and not has_bot_status_changed(guild):
+        return  # ไม่มีการเปลี่ยนแปลง ไม่ต้องอัพเดต
     
     # ตรวจสอบว่ามีข้อความสถานะอยู่แล้วหรือไม่
     status_message = None
@@ -203,21 +259,84 @@ async def update_bot_status_message(guild):
     embed = await generate_bot_status_embed(guild)
     
     # อัปเดตหรือส่งข้อความใหม่
-    if status_message:
-        await status_message.edit(embed=embed)
-    else:
-        await channel.send(embed=embed)
+    try:
+        if status_message:
+            await status_message.edit(embed=embed)
+            print(f"อัพเดตสถานะบอทในเซิร์ฟเวอร์ {guild.name}")
+        else:
+            await channel.send(embed=embed)
+            print(f"สร้างข้อความสถานะบอทใหม่ในเซิร์ฟเวอร์ {guild.name}")
+        
+        # อัพเดต cache หลังจากอัพเดตข้อความสำเร็จ
+        update_bot_status_cache(guild)
+        
+    except Exception as e:
+        print(f"เกิดข้อผิดพลาดในการอัพเดตสถานะบอท: {e}")
 
-# ปรับความถี่การอัปเดตสถานะบอท
-@tasks.loop(minutes=2)  # อัปเดตทุก 2 นาทีเพื่อให้เห็นการเปลี่ยนแปลงเร็วขึ้น
-async def bot_status_task():
-    """งานในเบื้องหลังสำหรับอัปเดตสถานะบอทเป็นระยะ"""
+# เพิ่ม event listener สำหรับตรวจจับการเปลี่ยนแปลงสถานะของสมาชิก (รวมบอท)
+@bot.event
+async def on_member_update(before, after):
+    """ตรวจจับการเปลี่ยนแปลงสถานะของสมาชิก (รวมบอท)"""
+    # ตรวจสอบว่าเป็นบอทและมีการเปลี่ยนแปลงสถานะหรือกิจกรรม
+    if after.bot and (before.status != after.status or 
+                     (before.activity != after.activity)):
+        print(f"ตรวจพบการเปลี่ยนสถานะของบอท {after.name}: {before.status} -> {after.status}")
+        await update_bot_status_message(after.guild)
+
+# เพิ่ม event listener สำหรับตรวจจับการเข้า-ออกของสมาชิก
+@bot.event
+async def on_member_join(member):
+    """เรียกเมื่อมีสมาชิกใหม่เข้าร่วมเซิร์ฟเวอร์"""
+    # เพิ่ม Auto Role ให้สมาชิกใหม่
+    try:
+        autorole = member.guild.get_role(AUTOROLE_ID)
+        if autorole:
+            await member.add_roles(autorole)
+            print(f"เพิ่ม Auto Role ให้ {member.name} สำเร็จ")
+        else:
+            print(f"ไม่พบ Auto Role (ID: {AUTOROLE_ID})")
+    except Exception as e:
+        print(f"เกิดข้อผิดพลาดในการเพิ่ม Auto Role: {str(e)}")
+    
+    # ถ้าเป็นบอทที่เข้าใหม่ ให้อัพเดตสถานะ
+    if member.bot:
+        print(f"ตรวจพบบอทใหม่เข้าร่วม: {member.name}")
+        await update_bot_status_message(member.guild)
+    
+    # รับข้อมูลช่องต้อนรับ
+    welcome_channel = bot.get_channel(WELCOME_CHANNEL_ID)
+    
+    if welcome_channel and not member.bot:  # ไม่ต้อนรับบอท
+        # สร้างแบนเนอร์ต้อนรับ
+        welcome_banner = await create_welcome_banner(member)
+        
+        # ส่งข้อความต้อนรับพร้อมแบนเนอร์
+        await welcome_channel.send(
+            f"**ยินดีต้อนรับ {member.mention} สู่ SALUSA!** 🎉\n"
+            f"กรุณาเข้าไปที่ <#{REGISTER_CHANNEL_ID}> เพื่อลงทะเบียนเข้าร่วมเซิร์ฟเวอร์",
+            file=welcome_banner
+        )
+
+@bot.event
+async def on_member_remove(member):
+    """เรียกเมื่อมีสมาชิกออกจากเซิร์ฟเวอร์"""
+    # ถ้าเป็นบอทที่ออกไป ให้อัพเดตสถานะ
+    if member.bot:
+        print(f"ตรวจพบบอทออกจากเซิร์ฟเวอร์: {member.name}")
+        await update_bot_status_message(member.guild)
+
+# ปรับความถี่การอัปเดตสถานะบอท (ลดลงเป็น backup เฉพาะ)
+@tasks.loop(minutes=30)  # ลดลงเป็นทุก 30 นาที เป็นการ sync backup
+async def bot_status_sync_task():
+    """งานในเบื้องหลังสำหรับ sync สถานะบอทเป็นระยะ (backup)"""
+    print("กำลัง sync สถานะบอท (backup check)...")
     for guild in bot.guilds:
-        await update_bot_status_message(guild)
+        # บังคับอัพเดตเพื่อ sync ข้อมูล
+        await update_bot_status_message(guild, force_update=True)
 
 # รอให้บอทพร้อมก่อนเริ่มงานในเบื้องหลัง
-@bot_status_task.before_loop
-async def before_bot_status_task():
+@bot_status_sync_task.before_loop
+async def before_bot_status_sync_task():
     """รอให้บอทพร้อมก่อนเริ่มงานในเบื้องหลัง"""
     await bot.wait_until_ready()
 
@@ -254,7 +373,7 @@ async def setbotstatuschannel(ctx, channel: discord.TextChannel = None):
     BOT_STATUS_CHANNEL_ID = channel.id
     
     # สร้างข้อความสถานะบอทในช่องใหม่ทันที
-    await update_bot_status_message(ctx.guild)
+    await update_bot_status_message(ctx.guild, force_update=True)
     
     await ctx.send(f"ตั้งค่าช่องแสดงสถานะบอทเป็น {channel.mention} สำเร็จ")
 
@@ -264,7 +383,7 @@ async def setbotstatuschannel(ctx, channel: discord.TextChannel = None):
 async def updatebotstatus(ctx):
     """บังคับอัปเดตสถานะบอททันที"""
     await ctx.send("กำลังอัปเดตสถานะบอท...")
-    await update_bot_status_message(ctx.guild)
+    await update_bot_status_message(ctx.guild, force_update=True)
     await ctx.send("อัปเดตสถานะบอทเรียบร้อยแล้ว")
 
 # Create registrations form Modal
@@ -579,8 +698,8 @@ async def on_ready():
     """เรียกเมื่อบอทเริ่มทำงานและพร้อมใช้งาน"""
     print(f'{bot.user.name} พร้อมใช้งานแล้ว!')
     
-    # เริ่มงานในเบื้องหลังสำหรับอัปเดตสถานะบอท
-    bot_status_task.start()
+    # เริ่มงานในเบื้องหลังสำหรับ sync สถานะบอท (backup)
+    bot_status_sync_task.start()
     
     # ตรวจสอบและสร้างข้อความลงทะเบียนในช่องลงทะเบียน
     register_channel = bot.get_channel(REGISTER_CHANNEL_ID)
@@ -606,35 +725,9 @@ async def on_ready():
     
     # สร้างข้อความสถานะบอทเมื่อบอทเริ่มทำงาน
     for guild in bot.guilds:
-        await update_bot_status_message(guild)
-
-@bot.event
-async def on_member_join(member):
-    """เรียกเมื่อมีสมาชิกใหม่เข้าร่วมเซิร์ฟเวอร์"""
-    # เพิ่ม Auto Role ให้สมาชิกใหม่
-    try:
-        autorole = member.guild.get_role(AUTOROLE_ID)
-        if autorole:
-            await member.add_roles(autorole)
-            print(f"เพิ่ม Auto Role ให้ {member.name} สำเร็จ")
-        else:
-            print(f"ไม่พบ Auto Role (ID: {AUTOROLE_ID})")
-    except Exception as e:
-        print(f"เกิดข้อผิดพลาดในการเพิ่ม Auto Role: {str(e)}")
-    
-    # รับข้อมูลช่องต้อนรับ
-    welcome_channel = bot.get_channel(WELCOME_CHANNEL_ID)
-    
-    if welcome_channel:
-        # สร้างแบนเนอร์ต้อนรับ
-        welcome_banner = await create_welcome_banner(member)
-        
-        # ส่งข้อความต้อนรับพร้อมแบนเนอร์
-        await welcome_channel.send(
-            f"**ยินดีต้อนรับ {member.mention} สู่ SALUSA!** 🎉\n"
-            f"กรุณาเข้าไปที่ <#{REGISTER_CHANNEL_ID}> เพื่อลงทะเบียนเข้าร่วมเซิร์ฟเวอร์",
-            file=welcome_banner
-        )
+        # สร้าง cache เริ่มต้นและแสดงสถานะ
+        update_bot_status_cache(guild)
+        await update_bot_status_message(guild, force_update=True)
 
 async def create_welcome_banner(member):
     """สร้างแบนเนอร์ต้อนรับสําหรับสมาชิกใหม่"""
