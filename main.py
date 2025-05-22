@@ -32,6 +32,8 @@ CONFIG_FILE = "config.json"
 
 # เพิ่มตัวแปรสำหรับเก็บสถานะบอทก่อนหน้า
 bot_status_cache = {}
+# เพิ่มตัวแปรสำหรับเก็บ ID ของข้อความสถานะบอท
+bot_status_message_ids = {}
 
 # Load all log registrations
 def load_registrations():
@@ -48,7 +50,7 @@ def save_registrations(data):
 
 # Load config 
 def load_config():
-    global AUTOROLE_ID, ADMIN_ROLE_ID, BOT_STATUS_CHANNEL_ID
+    global AUTOROLE_ID, ADMIN_ROLE_ID, BOT_STATUS_CHANNEL_ID, bot_status_message_ids
     try:
         with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
             config = json.load(f)
@@ -58,9 +60,25 @@ def load_config():
                 ADMIN_ROLE_ID = config['ADMIN_ROLE_ID']
             if 'BOT_STATUS_CHANNEL_ID' in config:
                 BOT_STATUS_CHANNEL_ID = config['BOT_STATUS_CHANNEL_ID']
+            # โหลด ID ของข้อความสถานะบอท
+            if 'bot_status_message_ids' in config:
+                bot_status_message_ids = config['bot_status_message_ids']
     except (FileNotFoundError, json.JSONDecodeError):
         # Use default value 
         pass
+
+# Save config including bot status message IDs
+def save_config():
+    global AUTOROLE_ID, ADMIN_ROLE_ID, BOT_STATUS_CHANNEL_ID, bot_status_message_ids
+    config = {
+        'AUTOROLE_ID': AUTOROLE_ID,
+        'ADMIN_ROLE_ID': ADMIN_ROLE_ID,
+        'BOT_STATUS_CHANNEL_ID': BOT_STATUS_CHANNEL_ID,
+        'bot_status_message_ids': bot_status_message_ids
+    }
+    
+    with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+        json.dump(config, f, ensure_ascii=False, indent=4)
 
 # ฟังก์ชันเพื่อสร้าง cache key สำหรับบอท
 def get_bot_cache_key(bot_member):
@@ -236,9 +254,9 @@ async def generate_bot_status_embed(guild):
     
     return embed
 
-# สร้างฟังก์ชันสำหรับอัปเดตข้อความสถานะบอท (ปรับปรุงให้ตรวจสอบการเปลี่ยนแปลงก่อน)
+# สร้างฟังก์ชันสำหรับอัปเดตข้อความสถานะบอท (ปรับปรุงให้ใช้ข้อความเดิม)
 async def update_bot_status_message(guild, force_update=False):
-    """อัปเดตข้อความสถานะบอทในช่องที่กำหนด (เฉพาะเมื่อมีการเปลี่ยนแปลง)"""
+    """อัปเดตข้อความสถานะบอทในช่องที่กำหนด (ใช้ข้อความเดิม)"""
     channel = bot.get_channel(BOT_STATUS_CHANNEL_ID)
     if not channel:
         print(f"ไม่พบช่องสำหรับแสดงสถานะบอท (ID: {BOT_STATUS_CHANNEL_ID})")
@@ -248,12 +266,41 @@ async def update_bot_status_message(guild, force_update=False):
     if not force_update and not has_bot_status_changed(guild):
         return  # ไม่มีการเปลี่ยนแปลง ไม่ต้องอัพเดต
     
-    # ตรวจสอบว่ามีข้อความสถานะอยู่แล้วหรือไม่
+    # ตรวจสอบว่ามีข้อความสถานะเก่าอยู่หรือไม่
     status_message = None
-    async for message in channel.history(limit=50):
-        if message.author == bot.user and message.embeds and "ข้อมูลเซิฟเวอร์" in message.embeds[0].title:
-            status_message = message
-            break
+    guild_id_str = str(guild.id)
+    
+    # ลองดึงข้อความจาก ID ที่บันทึกไว้
+    if guild_id_str in bot_status_message_ids:
+        try:
+            message_id = bot_status_message_ids[guild_id_str]
+            status_message = await channel.fetch_message(message_id)
+            
+            # ตรวจสอบว่าข้อความนี้เป็นของบอทเราและมี embed ที่ถูกต้อง
+            if status_message.author != bot.user or not status_message.embeds or "ข้อมูลเซิฟเวอร์" not in status_message.embeds[0].title:
+                status_message = None
+                # ลบ ID ที่ไม่ถูกต้องออกจาก cache
+                del bot_status_message_ids[guild_id_str]
+                save_config()
+        except (discord.NotFound, discord.HTTPException):
+            # ข้อความถูกลบแล้ว ลบ ID ออกจาก cache
+            if guild_id_str in bot_status_message_ids:
+                del bot_status_message_ids[guild_id_str]
+                save_config()
+            status_message = None
+    
+    # ถ้าไม่มีข้อความที่บันทึกไว้ หรือข้อความถูกลบ ให้ค้นหาในประวัติ
+    if not status_message:
+        async for message in channel.history(limit=50):
+            if (message.author == bot.user and 
+                message.embeds and 
+                len(message.embeds) > 0 and 
+                "ข้อมูลเซิฟเวอร์" in message.embeds[0].title):
+                status_message = message
+                # บันทึก ID ของข้อความที่พบ
+                bot_status_message_ids[guild_id_str] = message.id
+                save_config()
+                break
     
     # สร้าง embed สถานะบอท
     embed = await generate_bot_status_embed(guild)
@@ -261,10 +308,26 @@ async def update_bot_status_message(guild, force_update=False):
     # อัปเดตหรือส่งข้อความใหม่
     try:
         if status_message:
+            # แก้ไขข้อความเดิม
             await status_message.edit(embed=embed)
-            print(f"อัพเดตสถานะบอทในเซิร์ฟเวอร์ {guild.name}")
+            print(f"อัพเดตสถานะบอทในเซิร์ฟเวอร์ {guild.name} (แก้ไขข้อความเดิม)")
         else:
-            await channel.send(embed=embed)
+            # ลบข้อความเก่าทั้งหมดก่อนส่งข้อความใหม่
+            async for message in channel.history(limit=50):
+                if (message.author == bot.user and 
+                    message.embeds and 
+                    len(message.embeds) > 0 and 
+                    "ข้อมูลเซิฟเวอร์" in message.embeds[0].title):
+                    try:
+                        await message.delete()
+                    except:
+                        pass
+            
+            # ส่งข้อความใหม่
+            new_message = await channel.send(embed=embed)
+            # บันทึก ID ของข้อความใหม่
+            bot_status_message_ids[guild_id_str] = new_message.id
+            save_config()
             print(f"สร้างข้อความสถานะบอทใหม่ในเซิร์ฟเวอร์ {guild.name}")
         
         # อัพเดต cache หลังจากอัพเดตข้อความสำเร็จ
@@ -345,7 +408,7 @@ async def before_bot_status_sync_task():
 @commands.has_permissions(administrator=True)
 async def setbotstatuschannel(ctx, channel: discord.TextChannel = None):
     """ตั้งค่าช่องสำหรับแสดงสถานะบอทอัตโนมัติ"""
-    global BOT_STATUS_CHANNEL_ID
+    global BOT_STATUS_CHANNEL_ID, bot_status_message_ids
     if channel is None:
         # ถ้าไม่ระบุช่อง จะแสดงช่องปัจจุบัน
         current_channel = bot.get_channel(BOT_STATUS_CHANNEL_ID)
@@ -355,22 +418,16 @@ async def setbotstatuschannel(ctx, channel: discord.TextChannel = None):
             await ctx.send("ไม่ได้ตั้งค่าช่องแสดงสถานะบอท")
         return
     
-    # สร้างหรือโหลดไฟล์การตั้งค่า
-    try:
-        with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
-            config = json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        config = {}
-    
-    # อัปเดตค่า BOT_STATUS_CHANNEL_ID
-    config['BOT_STATUS_CHANNEL_ID'] = channel.id
-    
-    # บันทึกการตั้งค่า
-    with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
-        json.dump(config, f, ensure_ascii=False, indent=4)
-    
     # อัปเดตค่า BOT_STATUS_CHANNEL_ID
     BOT_STATUS_CHANNEL_ID = channel.id
+    
+    # รีเซ็ต message ID cache เนื่องจากเปลี่ยนช่อง
+    guild_id_str = str(ctx.guild.id)
+    if guild_id_str in bot_status_message_ids:
+        del bot_status_message_ids[guild_id_str]
+    
+    # บันทึกการตั้งค่า
+    save_config()
     
     # สร้างข้อความสถานะบอทในช่องใหม่ทันที
     await update_bot_status_message(ctx.guild, force_update=True)
@@ -385,6 +442,44 @@ async def updatebotstatus(ctx):
     await ctx.send("กำลังอัปเดตสถานะบอท...")
     await update_bot_status_message(ctx.guild, force_update=True)
     await ctx.send("อัปเดตสถานะบอทเรียบร้อยแล้ว")
+
+# เพิ่มคำสั่งสำหรับรีเซ็ตข้อความสถานะบอท
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def resetbotstatus(ctx):
+    """รีเซ็ตข้อความสถานะบอท (ลบข้อความเก่าและสร้างใหม่)"""
+    global bot_status_message_ids
+    
+    channel = bot.get_channel(BOT_STATUS_CHANNEL_ID)
+    if not channel:
+        await ctx.send("ไม่พบช่องสำหรับแสดงสถานะบอท")
+        return
+    
+    await ctx.send("กำลังรีเซ็ตข้อความสถานะบอท...")
+    
+    # ลบข้อความเก่าทั้งหมด
+    deleted_count = 0
+    async for message in channel.history(limit=50):
+        if (message.author == bot.user and 
+            message.embeds and 
+            len(message.embeds) > 0 and 
+            "ข้อมูลเซิฟเวอร์" in message.embeds[0].title):
+            try:
+                await message.delete()
+                deleted_count += 1
+            except:
+                pass
+    
+    # ลบ message ID cache
+    guild_id_str = str(ctx.guild.id)
+    if guild_id_str in bot_status_message_ids:
+        del bot_status_message_ids[guild_id_str]
+        save_config()
+    
+    # สร้างข้อความใหม่
+    await update_bot_status_message(ctx.guild, force_update=True)
+    
+    await ctx.send(f"รีเซ็ตข้อความสถานะบอทเรียบร้อยแล้ว (ลบข้อความเก่า {deleted_count} ข้อความ)")
 
 # Create registrations form Modal
 class RegistrationForm(ui.Modal, title="ลงทะเบียนผู้เล่น SALUSA"):
@@ -795,6 +890,7 @@ async def create_welcome_banner(member):
 @commands.has_permissions(administrator=True)
 async def setautorole(ctx, role: discord.Role = None):
     """ตั้งค่า Role ที่จะให้สมาชิกใหม่โดยอัตโนมัติ"""
+    global AUTOROLE_ID
     if role is None:
         # ถ้าไม่ระบุ Role จะแสดง Role ปัจจุบัน
         current_role = ctx.guild.get_role(AUTOROLE_ID)
@@ -804,22 +900,11 @@ async def setautorole(ctx, role: discord.Role = None):
             await ctx.send("ไม่ได้ตั้งค่า Auto Role")
         return
     
-    # สร้างหรือโหลดไฟล์การตั้งค่า
-    try:
-        with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
-            config = json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        config = {}
-    
     # อัปเดตค่า AUTOROLE_ID
-    config['AUTOROLE_ID'] = role.id
+    AUTOROLE_ID = role.id
     
     # บันทึกการตั้งค่า
-    with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
-        json.dump(config, f, ensure_ascii=False, indent=4)
-    
-    # อัปเดตค่า AUTOROLE_ID โดยใช้ตัวแปรที่ประกาศเป็น global ไว้แล้วตั้งแต่ต้น
-    AUTOROLE_ID = role.id
+    save_config()
     
     await ctx.send(f"ตั้งค่า Auto Role เป็น {role.mention} สำเร็จ")
 
@@ -828,6 +913,7 @@ async def setautorole(ctx, role: discord.Role = None):
 @commands.has_permissions(administrator=True)
 async def setadminrole(ctx, role: discord.Role = None):
     """ตั้งค่า Admin Role ที่จะถูก mention เมื่อมีการลงทะเบียนใหม่"""
+    global ADMIN_ROLE_ID
     if role is None:
         # ถ้าไม่ระบุ Role จะแสดง Role ปัจจุบัน
         current_role = ctx.guild.get_role(ADMIN_ROLE_ID)
@@ -837,22 +923,11 @@ async def setadminrole(ctx, role: discord.Role = None):
             await ctx.send("ไม่ได้ตั้งค่า Admin Role")
         return
     
-    # สร้างหรือโหลดไฟล์การตั้งค่า
-    try:
-        with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
-            config = json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        config = {}
-    
     # อัปเดตค่า ADMIN_ROLE_ID
-    config['ADMIN_ROLE_ID'] = role.id
+    ADMIN_ROLE_ID = role.id
     
     # บันทึกการตั้งค่า
-    with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
-        json.dump(config, f, ensure_ascii=False, indent=4)
-    
-    # อัปเดตค่า ADMIN_ROLE_ID โดยใช้ตัวแปรที่ประกาศเป็น global ไว้แล้วตั้งแต่ต้น
-    ADMIN_ROLE_ID = role.id
+    save_config()
     
     await ctx.send(f"ตั้งค่า Admin Role เป็น {role.mention} สำเร็จ")
 
