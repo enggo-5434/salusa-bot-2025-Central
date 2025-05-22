@@ -1,34 +1,109 @@
-# Replace the existing generate_bot_status_embed function with this updated version
+import discord
+import os
+from discord.ext import commands, tasks  # เพิ่ม tasks สำหรับทำงานเบื้องหลัง
+from myserver import keep_alive
+
+from PIL import Image, ImageDraw, ImageFont
+from io import BytesIO
+import requests
+import json
+from discord import ui
+from datetime import datetime
+
+# แก้ไขส่วน intents ให้เพิ่ม presence intent
+intents = discord.Intents.default()
+intents.members = True  # new member in Dis
+intents.message_content = True  # Read text
+intents.presences = True  # เพิ่ม presence intent เพื่อให้สามารถตรวจจับสถานะของบอทอื่นๆ ได้
+
+
+bot = commands.Bot(command_prefix='!', intents=intents)
+
+WELCOME_CHANNEL_ID = 1372511440786817075  
+REGISTER_CHANNEL_ID = 1361242784509726791 
+ADMIN_CHANNEL_ID = 1361241867798446171
+BOT_STATUS_CHANNEL_ID = 1374821568839942258 
+AUTOROLE_ID = 1361182119069749310  
+PLAYER_ROLE_ID = 1361186568416657593
+ADMIN_ROLE_ID = 1361241867798446171
+BANNER_TEMPLATE = "welcome_SalusaBG2.png"  
+REGISTRATIONS_FILE = "registrations.json"  
+CONFIG_FILE = "config.json"
+
+# Load all log registrations
+def load_registrations():
+    try:
+        with open(REGISTRATIONS_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+# Save all log registrations
+def save_registrations(data):
+    with open(REGISTRATIONS_FILE, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
+
+# Load config 
+def load_config():
+    global AUTOROLE_ID, ADMIN_ROLE_ID, BOT_STATUS_CHANNEL_ID
+    try:
+        with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+            if 'AUTOROLE_ID' in config:
+                AUTOROLE_ID = config['AUTOROLE_ID']
+            if 'ADMIN_ROLE_ID' in config:
+                ADMIN_ROLE_ID = config['ADMIN_ROLE_ID']
+            if 'BOT_STATUS_CHANNEL_ID' in config:
+                BOT_STATUS_CHANNEL_ID = config['BOT_STATUS_CHANNEL_ID']
+    except (FileNotFoundError, json.JSONDecodeError):
+        # Use default value 
+        pass
+
+# ปรับปรุงฟังก์ชันสำหรับแสดงสถานะบอท
 async def generate_bot_status_embed(guild):
-    """Generate an embed showing the status of all bots in the server"""
+    """สร้าง Embed สำหรับแสดงสถานะของบอททั้งหมด"""
+    # รวบรวมบอททั้งหมดในเซิร์ฟเวอร์
     bots = [member for member in guild.members if member.bot]
     
+    # ถ้าไม่มีบอทในเซิร์ฟเวอร์
     if not bots:
         embed = discord.Embed(
-            title="📊 Bot Status in Server",
-            description="No bots found in this server",
+            title="📊 สถานะบอทในเซิร์ฟเวอร์",
+            description="ไม่พบบอทในเซิร์ฟเวอร์นี้",
             color=discord.Color.blue(),
             timestamp=datetime.now()
         )
         return embed
     
+    # สร้าง embed สำหรับแสดงสถานะบอท
     embed = discord.Embed(
-        title="📊 Bot Status in Server",
-        description=f"Found {len(bots)} bots",
+        title="📊 สถานะบอทในเซิร์ฟเวอร์",
+        description=f"พบบอททั้งหมด {len(bots)} ตัว",
         color=discord.Color.blue(),
         timestamp=datetime.now()
     )
     
+    # เพิ่มไอคอนสำหรับแต่ละสถานะ
     status_icons = {
-        discord.Status.online: "🟢 Online",
-        discord.Status.idle: "🟡 Idle",
-        discord.Status.dnd: "🔴 Do Not Disturb",
-        discord.Status.offline: "⚫ Offline",
-        discord.Status.invisible: "⚪ Invisible",
-        None: "⚫ Unknown"
+        discord.Status.online: "🟢 ออนไลน์",
+        discord.Status.idle: "🟡 ไม่อยู่",
+        discord.Status.dnd: "🔴 ห้ามรบกวน",
+        discord.Status.offline: "⚫ ออฟไลน์",
+        discord.Status.invisible: "⚪ ซ่อนตัว",
+        None: "⚫ ไม่ทราบสถานะ"
     }
     
-    # Separate bots by status
+    # เรียงลำดับบอทตามสถานะ: ออนไลน์ -> ไม่อยู่ -> ห้ามรบกวน -> ออฟไลน์
+    status_order = {
+        discord.Status.online: 0,
+        discord.Status.idle: 1,
+        discord.Status.dnd: 2,
+        discord.Status.offline: 3,
+        discord.Status.invisible: 4,
+        None: 5
+    }
+    
+    # แยกบอทตามสถานะก่อนนำมาแสดงผล
     online_bots = []
     offline_bots = []
     
@@ -38,30 +113,32 @@ async def generate_bot_status_embed(guild):
         else:
             online_bots.append(bot)
     
-    # Sort bots by name
+    # เรียงลำดับบอทแต่ละกลุ่มตามชื่อ
     online_bots.sort(key=lambda b: b.name.lower())
     offline_bots.sort(key=lambda b: b.name.lower())
     
-    # Add online bots section
+    # เพิ่มหัวข้อสำหรับบอทออนไลน์
     if online_bots:
         embed.add_field(
-            name="🟢 Online Bots",
-            value="These bots are currently active:",
+            name="🟢 บอทที่ออนไลน์",
+            value="บอทต่อไปนี้กำลังทำงานอยู่",
             inline=False
         )
         
+        # เพิ่มข้อมูลบอทออนไลน์
         for bot in online_bots:
-            status_text = status_icons.get(bot.status, "🟢 Online")
+            status_text = status_icons.get(bot.status, "🟢 ออนไลน์")  # เพิ่มค่าเริ่มต้นเพื่อป้องกันกรณีสถานะ None
             
+            # ตรวจสอบกิจกรรมของบอท
             activity_text = ""
             if bot.activity:
                 activity_type = {
-                    discord.ActivityType.playing: "Playing",
-                    discord.ActivityType.streaming: "Streaming",
-                    discord.ActivityType.listening: "Listening to",
-                    discord.ActivityType.watching: "Watching",
+                    discord.ActivityType.playing: "กำลังเล่น",
+                    discord.ActivityType.streaming: "กำลังสตรีม",
+                    discord.ActivityType.listening: "กำลังฟัง",
+                    discord.ActivityType.watching: "กำลังดู",
                     discord.ActivityType.custom: "",
-                    discord.ActivityType.competing: "Competing in"
+                    discord.ActivityType.competing: "กำลังแข่งขัน"
                 }.get(bot.activity.type, "")
                 
                 if activity_type:
@@ -69,6 +146,7 @@ async def generate_bot_status_embed(guild):
                 elif isinstance(bot.activity, discord.CustomActivity) and bot.activity.name:
                     activity_text = bot.activity.name
             
+            # สร้างข้อความสถานะ
             status_display = status_text
             if activity_text:
                 status_display += f" | {activity_text}"
@@ -79,98 +157,292 @@ async def generate_bot_status_embed(guild):
                 inline=False
             )
     
-    # Add offline bots section
+    # เพิ่มหัวข้อสำหรับบอทออฟไลน์
     if offline_bots:
         embed.add_field(
-            name="⚫ Offline Bots",
-            value="These bots are currently inactive:",
+            name="⚫ บอทที่ออฟไลน์",
+            value="บอทต่อไปนี้ไม่ได้ทำงานอยู่",
             inline=False
         )
         
+        # เพิ่มข้อมูลบอทออฟไลน์
         for bot in offline_bots:
             embed.add_field(
                 name=f"{bot.display_name}",
-                value="⚫ Offline",
+                value="⚫ ออฟไลน์",
                 inline=False
             )
     
+    # เพิ่ม Server Info หลังจากแสดงสถานะบอท
+    embed.add_field(
+        name="🌐 ข้อมูลเซิร์ฟเวอร์",
+        value="# **IP:** ```79.127.213.68:7082```\n# **Password:** ```PlayerIsPrisoner```",
+        inline=False
+    )
+    
+    # ลบ footer timestamp ออก (ไม่ใส่ set_footer)
+    
     return embed
 
-# Replace the existing bot_status command with this updated version
-@bot.command(name="botstatus", aliases=["botsstatus", "botsonline"])
-async def bot_status(ctx, bot_name: str = None):
-    """Show online status of bots in the server"""
-    bots = [member for member in ctx.guild.members if member.bot]
-    
-    if bot_name:
-        filtered_bots = [bot for bot in bots if bot_name.lower() in bot.name.lower() or bot_name.lower() in bot.display_name.lower()]
-        if not filtered_bots:
-            await ctx.send(f"No bot found with name '{bot_name}'")
-            return
-        bots = filtered_bots
-    
-    if not bots:
-        await ctx.send("No bots found in this server")
+# สร้างฟังก์ชันสำหรับอัปเดตข้อความสถานะบอท
+async def update_bot_status_message(guild):
+    """อัปเดตข้อความสถานะบอทในช่องที่กำหนด"""
+    channel = bot.get_channel(BOT_STATUS_CHANNEL_ID)
+    if not channel:
+        print(f"ไม่พบช่องสำหรับแสดงสถานะบอท (ID: {BOT_STATUS_CHANNEL_ID})")
         return
     
-    embed = await generate_bot_status_embed(ctx.guild)
-    await ctx.send(embed=embed)
+    # ตรวจสอบว่ามีข้อความสถานะอยู่แล้วหรือไม่
+    status_message = None
+    async for message in channel.history(limit=50):
+        if message.author == bot.user and message.embeds and "สถานะบอทในเซิร์ฟเวอร์" in message.embeds[0].title:
+            status_message = message
+            break
     
-    # Add server IP and password information
-    server_info = (
-        "# __**IP:**__```79.127.213.68:7082```\n"
-        "# __**Password:**__```PlayerIsPrisoner```"
-    )
-    await ctx.send(server_info)
+    # สร้าง embed สถานะบอท
+    embed = await generate_bot_status_embed(guild)
+    
+    # อัปเดตหรือส่งข้อความใหม่
+    if status_message:
+        await status_message.edit(embed=embed)
+    else:
+        await channel.send(embed=embed)
 
-# Add the new RejectionReasonModal class
-class RejectionReasonModal(ui.Modal, title="เหตุผลการปฏิเสธการลงทะเบียน"):
+# ปรับความถี่การอัปเดตสถานะบอท
+@tasks.loop(minutes=2)  # อัปเดตทุก 2 นาทีเพื่อให้เห็นการเปลี่ยนแปลงเร็วขึ้น
+async def bot_status_task():
+    """งานในเบื้องหลังสำหรับอัปเดตสถานะบอทเป็นระยะ"""
+    for guild in bot.guilds:
+        await update_bot_status_message(guild)
+
+# รอให้บอทพร้อมก่อนเริ่มงานในเบื้องหลัง
+@bot_status_task.before_loop
+async def before_bot_status_task():
+    """รอให้บอทพร้อมก่อนเริ่มงานในเบื้องหลัง"""
+    await bot.wait_until_ready()
+
+# เพิ่มคำสั่งสำหรับตั้งค่าช่องแสดงสถานะบอท
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def setbotstatuschannel(ctx, channel: discord.TextChannel = None):
+    """ตั้งค่าช่องสำหรับแสดงสถานะบอทอัตโนมัติ"""
+    global BOT_STATUS_CHANNEL_ID
+    if channel is None:
+        # ถ้าไม่ระบุช่อง จะแสดงช่องปัจจุบัน
+        current_channel = bot.get_channel(BOT_STATUS_CHANNEL_ID)
+        if current_channel:
+            await ctx.send(f"ช่องแสดงสถานะบอทปัจจุบันคือ: {current_channel.mention}")
+        else:
+            await ctx.send("ไม่ได้ตั้งค่าช่องแสดงสถานะบอท")
+        return
+    
+    # สร้างหรือโหลดไฟล์การตั้งค่า
+    try:
+        with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        config = {}
+    
+    # อัปเดตค่า BOT_STATUS_CHANNEL_ID
+    config['BOT_STATUS_CHANNEL_ID'] = channel.id
+    
+    # บันทึกการตั้งค่า
+    with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+        json.dump(config, f, ensure_ascii=False, indent=4)
+    
+    # อัปเดตค่า BOT_STATUS_CHANNEL_ID
+    BOT_STATUS_CHANNEL_ID = channel.id
+    
+    # สร้างข้อความสถานะบอทในช่องใหม่ทันที
+    await update_bot_status_message(ctx.guild)
+    
+    await ctx.send(f"ตั้งค่าช่องแสดงสถานะบอทเป็น {channel.mention} สำเร็จ")
+
+# เพิ่มคำสั่งสำหรับบังคับอัปเดตสถานะบอททันที
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def updatebotstatus(ctx):
+    """บังคับอัปเดตสถานะบอททันที"""
+    await ctx.send("กำลังอัปเดตสถานะบอท...")
+    await update_bot_status_message(ctx.guild)
+    await ctx.send("อัปเดตสถานะบอทเรียบร้อยแล้ว")
+
+# Create registrations form Modal
+class RegistrationForm(ui.Modal, title="ลงทะเบียนผู้เล่น SALUSA"):
+    in_game_name = ui.TextInput(label="ชื่อในเกม", placeholder="กรุณากรอกชื่อตัวละครในเกม", required=True)
+    steam_id = ui.TextInput(label="Steam ID", placeholder="กรุณากรอก Steam ID ของคุณ", required=True)
+    profession = ui.TextInput(label="คุณสนใจอาชีพไหนใน SALUSA", placeholder="กรุณากรอกอาชีพที่สนใจ", required=True)
+    gold_methods = ui.TextInput(label="คุณสามารถหาทอง [Gold] ได้จากวิธีใดบ้าง", placeholder="[ตัวอย่าง: นำขายเข้าตลาดหุ้น]", required=True)
+    server_rules = ui.TextInput(label="จะเกิดอะไรขึ้นหากทิ้งรถไว้ในโซนต้องห้าม", placeholder="[ตัวอย่าง: ได้รับเงิน SD 3000]", required=True)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            # รวบรวมข้อมูล
+            user_data = {
+                "user_id": interaction.user.id,
+                "username": interaction.user.name,
+                "in_game_name": self.in_game_name.value,
+                "steam_id": self.steam_id.value,
+                "profession": self.profession.value,
+                "gold_methods": self.gold_methods.value,
+                "server_rules": self.server_rules.value,
+                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+            
+            # บันทึกข้อมูลลงในไฟล์
+            registrations = load_registrations()
+            
+            # ตรวจสอบว่าข้อมูลเดิมมีอยู่แล้วหรือไม่ (อนุญาตให้ส่งซ้ำได้)
+            if str(interaction.user.id) in registrations:
+                update_message = "ข้อมูลลงทะเบียนของคุณได้รับการอัปเดตแล้ว! ทีมงานจะตรวจสอบข้อมูลของคุณเร็วๆ นี้"
+            else:
+                update_message = "ขอบคุณสำหรับการลงทะเบียน! ทีมงานจะตรวจสอบข้อมูลของคุณเร็วๆ นี้"
+                
+            # บันทึกหรืออัปเดตข้อมูล
+            registrations[str(interaction.user.id)] = user_data
+            save_registrations(registrations)
+            
+            # ตอบกลับผู้ใช้
+            await interaction.response.send_message(
+                update_message, 
+                ephemeral=True
+            )
+            
+            # ส่งแจ้งเตือนไปยังช่องทีมงาน (แยกออกจาก interaction response)
+            admin_channel = bot.get_channel(ADMIN_CHANNEL_ID)
+            if admin_channel:
+                # สร้าง embed สำหรับข้อมูลการลงทะเบียน
+                embed = discord.Embed(
+                    title="การลงทะเบียนใหม่",
+                    description=f"ผู้ใช้ {interaction.user.mention} ได้ส่งคำขอลงทะเบียน",
+                    color=discord.Color.blue()
+                )
+                embed.add_field(name="ชื่อในเกม", value=self.in_game_name.value, inline=False)
+                embed.add_field(name="Steam ID", value=self.steam_id.value, inline=False)
+                embed.add_field(name="อาชีพที่สนใจ", value=self.profession.value, inline=False)
+                embed.add_field(name="วิธีหาทอง", value=self.gold_methods.value, inline=False)
+                embed.add_field(name="โซนต้องห้าม", value=self.server_rules.value, inline=False)
+                
+                # สร้างปุ่มอนุมัติและปฏิเสธ
+                view = AdminActionView(interaction.user.id)
+                
+                # เพิ่ม mention admin role ในข้อความ
+                admin_role_mention = f"<@&{ADMIN_ROLE_ID}>"
+                await admin_channel.send(
+                    f"{admin_role_mention} มีการลงทะเบียนใหม่ที่รอการอนุมัติ!", 
+                    embed=embed, 
+                    view=view
+                )
+        
+        except Exception as e:
+            print(f"Error processing registration: {str(e)}")
+            try:
+                await interaction.response.send_message(
+                    "เกิดข้อผิดพลาดในการลงทะเบียน โปรดลองใหม่อีกครั้ง", 
+                    ephemeral=True
+                )
+            except:
+                # Interaction might have already been responded to
+                pass
+
+# ปุ่มลงทะเบียน
+class RegisterButton(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)  # ปุ่มไม่หมดอายุ
+    
+    @discord.ui.button(label="ลงทะเบียนที่นี่", style=discord.ButtonStyle.primary, emoji="📝")
+    async def register_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # เปิดแบบฟอร์มลงทะเบียน
+        await interaction.response.send_modal(RegistrationForm())
+
+# Modal สำหรับกรอกเหตุผลการปฏิเสธ
+class RejectReasonModal(ui.Modal, title="เหตุผลการปฏิเสธ"):
     reason = ui.TextInput(
-        label="กรุณาระบุเหตุผลการปฏิเสธ",
-        style=discord.TextStyle.long,
-        placeholder="เช่น ข้อมูลไม่ครบถ้วน, Steam ID ไม่ถูกต้อง, ฯลฯ",
-        required=True
+        label="เหตุผลการปฏิเสธ",
+        placeholder="กรุณากรอกเหตุผลการปฏิเสธการลงทะเบียน...",
+        style=discord.TextStyle.paragraph,
+        required=True,
+        max_length=1000
     )
-
+    
     def __init__(self, original_view):
         super().__init__()
         self.original_view = original_view
-
+    
     async def on_submit(self, interaction: discord.Interaction):
+        # ดำเนินการปฏิเสธพร้อมเหตุผล
         await self.original_view.perform_reject_with_reason(interaction, self.reason.value)
 
-# Replace the existing AdminActionView class with this updated version
-class AdminActionView(discord.ui.View):
-    def __init__(self, user_id):
-        super().__init__(timeout=None)
-        self.user_id = user_id
+# ปุ่มสำหรับทีมงานยืนยันการอนุมัติหรือปฏิเสธ
+class ConfirmActionView(discord.ui.View):
+    def __init__(self, original_view, action_type="approve"):
+        super().__init__(timeout=60)  # timeout หลังจาก 60 วินาที
+        self.original_view = original_view
+        self.action_type = action_type  # "approve" หรือ "reject"
     
-    @discord.ui.button(label="Approve", style=discord.ButtonStyle.success, emoji="✅")
-    async def approve_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+    @discord.ui.button(label="ยืนยัน", style=discord.ButtonStyle.success, emoji="✅")
+    async def confirm_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not interaction.permissions.administrator:
-            await interaction.response.send_message("You don't have permission for this action", ephemeral=True)
+            await interaction.response.send_message("คุณไม่มีสิทธิ์ในการดำเนินการนี้", ephemeral=True)
             return
         
+        # ดำเนินการตามประเภทการกระทำ
+        if self.action_type == "approve":
+            await self.original_view.perform_approve(interaction)
+        else:
+            # สำหรับการปฏิเสธ ให้เปิด Modal เพื่อกรอกเหตุผล
+            await interaction.response.send_modal(RejectReasonModal(self.original_view))
+    
+    @discord.ui.button(label="ยกเลิก", style=discord.ButtonStyle.secondary, emoji="❌")
+    async def cancel_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not interaction.permissions.administrator:
+            await interaction.response.send_message("คุณไม่มีสิทธิ์ในการดำเนินการนี้", ephemeral=True)
+            return
+        
+        # ยกเลิกและกลับไปยังปุ่มเดิม
+        await interaction.response.edit_message(view=self.original_view)
+        await interaction.followup.send("ยกเลิกการดำเนินการแล้ว", ephemeral=True)
+
+# ปุ่มสำหรับทีมงานอนุมัติหรือปฏิเสธ
+class AdminActionView(discord.ui.View):
+    def __init__(self, user_id):
+        super().__init__(timeout=None)  # ปุ่มไม่หมดอายุ
+        self.user_id = user_id
+    
+    @discord.ui.button(label="อนุมัติ", style=discord.ButtonStyle.success, emoji="✅")
+    async def approve_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not interaction.permissions.administrator:
+            await interaction.response.send_message("คุณไม่มีสิทธิ์ในการดำเนินการนี้", ephemeral=True)
+            return
+        
+        # แสดงข้อความยืนยันการอนุมัติ
         confirm_view = ConfirmActionView(self, "approve")
         await interaction.response.edit_message(
-            content=f"Are you sure you want to approve the registration for <@{self.user_id}>?",
+            content=f"คุณแน่ใจหรือไม่ที่จะอนุมัติการลงทะเบียนของ <@{self.user_id}>?",
             view=confirm_view
         )
     
-    @discord.ui.button(label="Reject", style=discord.ButtonStyle.danger, emoji="❌")
+    @discord.ui.button(label="ปฏิเสธ", style=discord.ButtonStyle.danger, emoji="❌")
     async def reject_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not interaction.permissions.administrator:
-            await interaction.response.send_message("You don't have permission for this action", ephemeral=True)
+            await interaction.response.send_message("คุณไม่มีสิทธิ์ในการดำเนินการนี้", ephemeral=True)
             return
         
-        # Show rejection reason modal
-        await interaction.response.send_modal(RejectionReasonModal(self))
+        # แสดงข้อความยืนยันการปฏิเสธ
+        confirm_view = ConfirmActionView(self, "reject")
+        await interaction.response.edit_message(
+            content=f"คุณแน่ใจหรือไม่ที่จะปฏิเสธการลงทะเบียนของ <@{self.user_id}>?",
+            view=confirm_view
+        )
     
+    # ฟังก์ชันสำหรับดำเนินการอนุมัติหลังจากยืนยันแล้ว
     async def perform_approve(self, interaction):
+        # อนุมัติผู้ใช้
         registrations = load_registrations()
         user_id_str = str(self.user_id)
         
         if user_id_str in registrations:
+            # ให้บทบาทกับผู้ใช้
             guild = interaction.guild
             member = guild.get_member(self.user_id)
             
@@ -179,66 +451,505 @@ class AdminActionView(discord.ui.View):
                 player_role = guild.get_role(PLAYER_ROLE_ID)
                 if player_role:
                     try:
+                        # ลบ Auto Role ออกก่อน
                         if auto_role:
                             await member.remove_roles(auto_role)
                         
+                        # จากนั้นเพิ่ม Player Role
                         await member.add_roles(player_role)
                         
+                        # แจ้งเตือนผู้ใช้ว่าได้รับการอนุมัติ
                         try:
-                            await member.send("Congratulations! Your registration has been approved. You can now access the server.")
+                            await member.send(f"ยินดีด้วย! คำขอลงทะเบียนของคุณได้รับการอนุมัติแล้ว คุณสามารถเข้าร่วมเซิร์ฟเวอร์ได้ทันที https://discord.com/channels/1360583634481975327/1361290838520500377 ")
                         except:
-                            pass
+                            pass  # อาจไม่สามารถส่งข้อความส่วนตัวได้
                         
+                        # ลบข้อมูลออกจากไฟล์
                         del registrations[user_id_str]
                         save_registrations(registrations)
                         
+                        # ปรับปรุงข้อความทีมงาน
                         await interaction.message.edit(
-                            content=f"✅ Registration for <@{self.user_id}> approved by {interaction.user.mention}",
+                            content=f"✅ การลงทะเบียนของ <@{self.user_id}> ได้รับการอนุมัติโดย {interaction.user.mention}",
                             embed=interaction.message.embeds[0],
                             view=None
                         )
-                        await interaction.response.send_message("User approved successfully", ephemeral=True)
+                        await interaction.response.send_message("อนุมัติผู้ใช้เรียบร้อยแล้ว", ephemeral=True)
                     except Exception as e:
-                        await interaction.response.send_message(f"Error: {str(e)}", ephemeral=True)
+                        await interaction.response.send_message(f"เกิดข้อผิดพลาด: {str(e)}", ephemeral=True)
                 else:
-                    await interaction.response.send_message("Player role not found. Please check settings", ephemeral=True)
+                    await interaction.response.send_message("ไม่พบบทบาทผู้เล่น โปรดตรวจสอบการตั้งค่า", ephemeral=True)
             else:
-                await interaction.response.send_message("User not found in server", ephemeral=True)
+                await interaction.response.send_message("ไม่พบผู้ใช้ในเซิร์ฟเวอร์", ephemeral=True)
         else:
-            await interaction.response.send_message("Registration data not found for this user", ephemeral=True)
+            await interaction.response.send_message("ไม่พบข้อมูลการลงทะเบียนของผู้ใช้นี้", ephemeral=True)
     
+    # ฟังก์ชันสำหรับดำเนินการปฏิเสธหลังจากยืนยันแล้ว (พร้อมเหตุผล)
     async def perform_reject_with_reason(self, interaction, reason):
+        # ปฏิเสธผู้ใช้พร้อมเหตุผล
         registrations = load_registrations()
         user_id_str = str(self.user_id)
         
         if user_id_str in registrations:
+            # แจ้งเตือนผู้ใช้ว่าถูกปฏิเสธพร้อมเหตุผล
             guild = interaction.guild
             member = guild.get_member(self.user_id)
             
             if member:
                 try:
-                    rejection_message = (
-                        "ขออภัย การลงทะเบียนของคุณไม่ได้รับการอนุมัติ\n\n"
-                        f"**เหตุผล:** {reason}\n\n"
-                        "คุณสามารถลงทะเบียนใหม่ได้ที่ช่องทางการลงทะเบียน"
+                    reject_embed = discord.Embed(
+                        title="❌ การลงทะเบียนไม่ได้รับการอนุมัติ",
+                        description="ขออภัย คำขอลงทะเบียนของคุณไม่ได้รับการอนุมัติ",
+                        color=discord.Color.red()
                     )
-                    await member.send(rejection_message)
+                    reject_embed.add_field(
+                        name="เหตุผล",
+                        value=reason,
+                        inline=False
+                    )
+                    reject_embed.add_field(
+                        name="ข้อแนะนำ",
+                        value="หากคุณต้องการลงทะเบียนอีกครั้ง กรุณาแก้ไขตามเหตุผลข้างต้นและลองใหม่อีกครั้ง หรือติดต่อทีมงานสำหรับข้อมูลเพิ่มเติม",
+                        inline=False
+                    )
+                    
+                    await member.send(embed=reject_embed)
                 except:
-                    pass
+                    pass  # อาจไม่สามารถส่งข้อความส่วนตัวได้
             
-            # Delete old registration data
-            if user_id_str in registrations:
-                del registrations[user_id_str]
-                save_registrations(registrations)
+            # ลบข้อมูลออกจากไฟล์
+            del registrations[user_id_str]
+            save_registrations(registrations)
             
+            # สร้าง embed สำหรับแสดงเหตุผลการปฏิเสธ
+            reject_info_embed = discord.Embed(
+                title="❌ การลงทะเบียนถูกปฏิเสธ",
+                description=f"การลงทะเบียนของ <@{self.user_id}> ถูกปฏิเสธโดย {interaction.user.mention}",
+                color=discord.Color.red()
+            )
+            reject_info_embed.add_field(
+                name="เหตุผลการปฏิเสธ",
+                value=reason,
+                inline=False
+            )
+            
+            # ปรับปรุงข้อความทีมงาน
             await interaction.message.edit(
-                content=(
-                    f"❌ Registration for <@{self.user_id}> rejected by {interaction.user.mention}\n"
-                    f"**เหตุผล:** {reason}"
-                ),
-                embed=interaction.message.embeds[0],
+                content="",
+                embed=reject_info_embed,
                 view=None
             )
-            await interaction.followup.send("User rejected successfully", ephemeral=True)
+            await interaction.response.send_message("ปฏิเสธผู้ใช้เรียบร้อยแล้ว และส่งเหตุผลให้ผู้ใช้แล้ว", ephemeral=True)
         else:
-            await interaction.followup.send("Registration data not found for this user", ephemeral=True)
+            await interaction.response.send_message("ไม่พบข้อมูลการลงทะเบียนของผู้ใช้นี้", ephemeral=True)
+
+@bot.event
+async def on_ready():
+    """เรียกเมื่อบอทเริ่มทำงานและพร้อมใช้งาน"""
+    print(f'{bot.user.name} พร้อมใช้งานแล้ว!')
+    
+    # เริ่มงานในเบื้องหลังสำหรับอัปเดตสถานะบอท
+    bot_status_task.start()
+    
+    # ตรวจสอบและสร้างข้อความลงทะเบียนในช่องลงทะเบียน
+    register_channel = bot.get_channel(REGISTER_CHANNEL_ID)
+    if register_channel:
+        # ลบข้อความเก่าและสร้างข้อความใหม่
+        async for message in register_channel.history(limit=100):
+            if message.author == bot.user:
+                await message.delete()
+        
+        embed = discord.Embed(
+            title="ลงทะเบียนเข้าร่วม SALUSA",
+            description=(
+                "ยินดีต้อนรับสู่เซิร์ฟเวอร์ SALUSA!\n"
+                "โปรดอ่าน https://discord.com/channels/1360583634481975327/1364640491647537272 \n"
+                "โปรดอ่าน https://discord.com/channels/1360583634481975327/1361289410804580372 \n"
+                "กรุณาลงทะเบียนเพื่อเข้าร่วมเซิร์ฟเวอร์ของเรา โดยคลิกที่ปุ่ม 'ลงทะเบียนที่นี่' ด้านล่าง\n"
+                "หลังจากลงทะเบียนแล้ว ทีมงานจะตรวจสอบข้อมูลของคุณและอนุมัติคำขอโดยเร็วที่สุด"
+            ),
+            color=discord.Color.blue()
+        )
+        
+        await register_channel.send(embed=embed, view=RegisterButton())
+    
+    # สร้างข้อความสถานะบอทเมื่อบอทเริ่มทำงาน
+    for guild in bot.guilds:
+        await update_bot_status_message(guild)
+
+@bot.event
+async def on_member_join(member):
+    """เรียกเมื่อมีสมาชิกใหม่เข้าร่วมเซิร์ฟเวอร์"""
+    # เพิ่ม Auto Role ให้สมาชิกใหม่
+    try:
+        autorole = member.guild.get_role(AUTOROLE_ID)
+        if autorole:
+            await member.add_roles(autorole)
+            print(f"เพิ่ม Auto Role ให้ {member.name} สำเร็จ")
+        else:
+            print(f"ไม่พบ Auto Role (ID: {AUTOROLE_ID})")
+    except Exception as e:
+        print(f"เกิดข้อผิดพลาดในการเพิ่ม Auto Role: {str(e)}")
+    
+    # รับข้อมูลช่องต้อนรับ
+    welcome_channel = bot.get_channel(WELCOME_CHANNEL_ID)
+    
+    if welcome_channel:
+        # สร้างแบนเนอร์ต้อนรับ
+        welcome_banner = await create_welcome_banner(member)
+        
+        # ส่งข้อความต้อนรับพร้อมแบนเนอร์
+        await welcome_channel.send(
+            f"**ยินดีต้อนรับ {member.mention} สู่ SALUSA!** 🎉\n"
+            f"กรุณาเข้าไปที่ <#{REGISTER_CHANNEL_ID}> เพื่อลงทะเบียนเข้าร่วมเซิร์ฟเวอร์",
+            file=welcome_banner
+        )
+
+async def create_welcome_banner(member):
+    """สร้างแบนเนอร์ต้อนรับสําหรับสมาชิกใหม่"""
+    # โหลดรูปโปรไฟล์ของสมาชิก
+    avatar_url = member.avatar.url if member.avatar else member.default_avatar.url
+    avatar_response = requests.get(avatar_url)
+    avatar_image = Image.open(BytesIO(avatar_response.content)).convert('RGBA')
+    avatar_size = 255
+    mask_size = 255
+    
+    # ปรับขนาดรูปโปรไฟล์และทําให้เป็นวงกลม
+    avatar_image = avatar_image.resize((avatar_size, avatar_size))
+    
+    # สร้างหน้ากากวงกลมสําหรับรูปโปรไฟล์
+    mask = Image.new('L', (255, 255), 0)
+    draw = ImageDraw.Draw(mask)
+    draw.ellipse((0, 0, mask_size, mask_size), fill=255)
+    
+    # โหลดแม่แบบแบนเนอร์
+    try:
+        template = Image.open(BANNER_TEMPLATE).convert('RGBA')
+    except FileNotFoundError:
+        # สร้างแบนเนอร์เริ่มต้นหากไม่พบแม่แบบ
+        template = Image.new('RGBA', (1024, 500), (47, 49, 54, 255))
+        
+    # วางรูปโปรไฟล์ในวงกลมลงบนแบนเนอร์
+    avatar_with_mask = Image.new('RGBA', (mask_size, mask_size))
+    avatar_with_mask.paste(avatar_image, (0, 0), mask)
+    pos_x = 512 - (mask_size // 2)
+    template.paste(avatar_with_mask, (pos_x, 70), avatar_with_mask)
+    
+    # เพิ่มข้อความต้อนรับและชื่อผู้ใช้
+    draw = ImageDraw.Draw(template)
+    
+    # พยายามโหลดฟอนต์ที่สนับสนุนภาษาไทย (อาจต้องดาวน์โหลดและติดตั้งก่อน)
+    try:
+        title_font = ImageFont.truetype("NotoSans-Regular.ttf", 48)
+        user_font = ImageFont.truetype("NotoSans-Regular.ttf", 36)
+        watermark_font = ImageFont.truetype("NotoSans-Regular.ttf", 10)  # เพิ่มฟอนต์สำหรับลายน้ำ
+    except IOError:
+        # ใช้ฟอนต์เริ่มต้นหากไม่พบฟอนต์ที่ต้องการ
+        title_font = ImageFont.load_default()
+        user_font = ImageFont.load_default()
+        watermark_font = ImageFont.load_default()
+    
+    draw.text((512, 365), "Welcome into SALUSA", fill=(255, 255, 255, 255), font=title_font, anchor="mm")
+    draw.text((512, 420), f"{member.display_name}", fill=(230, 126, 32, 255), font=user_font, anchor="mm")
+    
+    watermark_text = "©2025 All Rights Reserved, Salusa"
+    watermark_color = (255, 255, 255, 255) 
+    
+    watermark_x = template.width // 2  
+    watermark_y = template.height - 20  
+    
+    draw.text((watermark_x, watermark_y), watermark_text, fill=watermark_color, font=watermark_font, anchor="ms")
+    
+    # บันทึกแบนเนอร์ลงในไฟล์ชั่วคราว
+    buffer = BytesIO()
+    template.save(buffer, format='PNG')
+    buffer.seek(0)
+    
+    return discord.File(buffer, filename='welcome.png')
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def setautorole(ctx, role: discord.Role = None):
+    """ตั้งค่า Role ที่จะให้สมาชิกใหม่โดยอัตโนมัติ"""
+    if role is None:
+        # ถ้าไม่ระบุ Role จะแสดง Role ปัจจุบัน
+        current_role = ctx.guild.get_role(AUTOROLE_ID)
+        if current_role:
+            await ctx.send(f"Auto Role ปัจจุบันคือ: {current_role.mention}")
+        else:
+            await ctx.send("ไม่ได้ตั้งค่า Auto Role")
+        return
+    
+    # สร้างหรือโหลดไฟล์การตั้งค่า
+    try:
+        with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        config = {}
+    
+    # อัปเดตค่า AUTOROLE_ID
+    config['AUTOROLE_ID'] = role.id
+    
+    # บันทึกการตั้งค่า
+    with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+        json.dump(config, f, ensure_ascii=False, indent=4)
+    
+    # อัปเดตค่า AUTOROLE_ID โดยใช้ตัวแปรที่ประกาศเป็น global ไว้แล้วตั้งแต่ต้น
+    AUTOROLE_ID = role.id
+    
+    await ctx.send(f"ตั้งค่า Auto Role เป็น {role.mention} สำเร็จ")
+
+# เพิ่มคำสั่งสำหรับตั้งค่า Admin Role
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def setadminrole(ctx, role: discord.Role = None):
+    """ตั้งค่า Admin Role ที่จะถูก mention เมื่อมีการลงทะเบียนใหม่"""
+    if role is None:
+        # ถ้าไม่ระบุ Role จะแสดง Role ปัจจุบัน
+        current_role = ctx.guild.get_role(ADMIN_ROLE_ID)
+        if current_role:
+            await ctx.send(f"Admin Role ปัจจุบันคือ: {current_role.mention}")
+        else:
+            await ctx.send("ไม่ได้ตั้งค่า Admin Role")
+        return
+    
+    # สร้างหรือโหลดไฟล์การตั้งค่า
+    try:
+        with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        config = {}
+    
+    # อัปเดตค่า ADMIN_ROLE_ID
+    config['ADMIN_ROLE_ID'] = role.id
+    
+    # บันทึกการตั้งค่า
+    with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+        json.dump(config, f, ensure_ascii=False, indent=4)
+    
+    # อัปเดตค่า ADMIN_ROLE_ID โดยใช้ตัวแปรที่ประกาศเป็น global ไว้แล้วตั้งแต่ต้น
+    ADMIN_ROLE_ID = role.id
+    
+    await ctx.send(f"ตั้งค่า Admin Role เป็น {role.mention} สำเร็จ")
+
+# คำสั่งสำหรับทีมงานในการจัดการการลงทะเบียน
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def registrations(ctx):
+    """แสดงรายการผู้ใช้ที่รอการอนุมัติ"""
+    registrations_data = load_registrations()
+    
+    if not registrations_data:
+        await ctx.send("ไม่มีคำขอลงทะเบียนที่รอการอนุมัติ")
+        return
+    
+    embed = discord.Embed(
+        title="รายการคำขอลงทะเบียนที่รอการอนุมัติ",
+        color=discord.Color.blue()
+    )
+    
+    for user_id, data in registrations_data.items():
+        embed.add_field(
+            name=f"ผู้ใช้: {data['username']}",
+            value=f"ชื่อในเกม: {data['in_game_name']}\nSteam ID: {data['steam_id']}\nวันที่ลงทะเบียน: {data['timestamp']}",
+            inline=False
+        )
+    
+    await ctx.send(embed=embed)
+
+@bot.command(name="botstatus", aliases=["botsstatus", "botsonline"])
+async def bot_status(ctx, bot_name: str = None):
+    """แสดงสถานะออนไลน์ของบอทอื่นๆ ในเซิร์ฟเวอร์"""
+    # รวบรวมบอททั้งหมดในเซิร์ฟเวอร์
+    bots = [member for member in ctx.guild.members if member.bot]
+    
+    if bot_name:
+        # ค้นหาบอทตามชื่อที่ระบุ (ค้นหาแบบไม่คำนึงถึงตัวพิมพ์ใหญ่-เล็ก)
+        filtered_bots = [bot for bot in bots if bot_name.lower() in bot.name.lower() or bot_name.lower() in bot.display_name.lower()]
+        if not filtered_bots:
+            await ctx.send(f"ไม่พบบอทที่มีชื่อว่า '{bot_name}'")
+            return
+        bots = filtered_bots
+    
+    # ถ้าไม่มีบอทในเซิร์ฟเวอร์
+    if not bots:
+        await ctx.send("ไม่พบบอทในเซิร์ฟเวอร์นี้")
+        return
+    
+    # สร้าง embed สำหรับแสดงสถานะบอท
+    embed = discord.Embed(
+        title="📊 สถานะบอทในเซิร์ฟเวอร์",
+        description=f"พบบอททั้งหมด {len(bots)} ตัว",
+        color=discord.Color.blue(),
+        timestamp=datetime.now()
+    )
+    
+    # แยกบอทตามสถานะ
+    online_bots = []
+    offline_bots = []
+    
+    for bot in bots:
+        if bot.status == discord.Status.offline or bot.status is None:
+            offline_bots.append(bot)
+        else:
+            online_bots.append(bot)
+    
+    # เรียงลำดับบอทแต่ละกลุ่มตามชื่อ
+    online_bots.sort(key=lambda b: b.name.lower())
+    offline_bots.sort(key=lambda b: b.name.lower())
+    
+    # เพิ่มหัวข้อสำหรับบอทออนไลน์
+    if online_bots:
+        embed.add_field(
+            name="🟢 บอทที่ออนไลน์",
+            value="บอทต่อไปนี้กำลังทำงานอยู่",
+            inline=False
+        )
+        
+        # เพิ่มข้อมูลบอทออนไลน์
+        for bot in online_bots:
+            # ไอคอนสำหรับแต่ละสถานะ
+            status_icons = {
+                discord.Status.online: "🟢 ออนไลน์",
+                discord.Status.idle: "🟡 ไม่อยู่",
+                discord.Status.dnd: "🔴 ห้ามรบกวน",
+                None: "🟢 ออนไลน์"  # กรณีไม่สามารถตรวจจับสถานะได้ แต่รู้ว่าไม่ได้ออฟไลน์
+            }
+            
+            status_text = status_icons.get(bot.status, "🟢 ออนไลน์")
+            
+            # ตรวจสอบกิจกรรมของบอท
+            activity_text = ""
+            if bot.activity:
+                activity_type = {
+                    discord.ActivityType.playing: "กำลังเล่น",
+                    discord.ActivityType.streaming: "กำลังสตรีม",
+                    discord.ActivityType.listening: "กำลังฟัง",
+                    discord.ActivityType.watching: "กำลังดู",
+                    discord.ActivityType.custom: "",
+                    discord.ActivityType.competing: "กำลังแข่งขัน"
+                }.get(bot.activity.type, "")
+                
+                if activity_type:
+                    activity_text = f"{activity_type} {bot.activity.name}"
+                elif isinstance(bot.activity, discord.CustomActivity) and bot.activity.name:
+                    activity_text = bot.activity.name
+            
+            # สร้างข้อความสถานะ
+            status_display = status_text
+            if activity_text:
+                status_display += f" | {activity_text}"
+            
+            embed.add_field(
+                name=f"{bot.display_name}",
+                value=status_display,
+                inline=False
+            )
+    
+    # เพิ่มหัวข้อสำหรับบอทออฟไลน์
+    if offline_bots:
+        embed.add_field(
+            name="⚫ บอทที่ออฟไลน์",
+            value="บอทต่อไปนี้ไม่ได้ทำงานอยู่",
+            inline=False
+        )
+        
+        # เพิ่มข้อมูลบอทออฟไลน์
+        for bot in offline_bots:
+            embed.add_field(
+                name=f"{bot.display_name}",
+                value="⚫ ออฟไลน์",
+                inline=False
+            )
+    
+    # เพิ่ม Server Info หลังจากแสดงสถานะบอท
+    embed.add_field(
+        name="🌐 ข้อมูลเซิร์ฟเวอร์",
+        value="# **IP:** ```79.127.213.68:7082```\n# **Password:** ```PlayerIsPrisoner```",
+        inline=False
+    )
+    
+    # ลบ footer timestamp ออก
+    
+    await ctx.send(embed=embed)
+
+@bot.command(name="botinfo")
+async def bot_info(ctx, *, bot_name: str):
+    """แสดงข้อมูลละเอียดของบอทที่ระบุ"""
+    # ค้นหาบอทตามชื่อ
+    found_bots = []
+    for member in ctx.guild.members:
+        if member.bot and (bot_name.lower() in member.name.lower() or bot_name.lower() in member.display_name.lower()):
+            found_bots.append(member)
+    
+    if not found_bots:
+        await ctx.send(f"ไม่พบบอทที่มีชื่อว่า '{bot_name}'")
+        return
+    
+    # ถ้าพบหลายบอท ให้แสดงบอทแรกที่พบ
+    target_bot = found_bots[0]
+    
+    # สร้าง embed สำหรับแสดงข้อมูลบอท
+    embed = discord.Embed(
+        title=f"ข้อมูลบอท: {target_bot.display_name}",
+        color=target_bot.color,
+        timestamp=datetime.now()
+    )
+    
+    # เพิ่มรูปโปรไฟล์ของบอท
+    if target_bot.avatar:
+        embed.set_thumbnail(url=target_bot.avatar.url)
+    
+    # สถานะออนไลน์
+    status_icons = {
+        discord.Status.online: "🟢 ออนไลน์",
+        discord.Status.idle: "🟡 ไม่อยู่",
+        discord.Status.dnd: "🔴 ห้ามรบกวน",
+        discord.Status.offline: "⚫ ออฟไลน์",
+        discord.Status.invisible: "⚪ ซ่อนตัว",
+        None: "⚫ ไม่ทราบสถานะ"
+    }
+    embed.add_field(name="สถานะ", value=status_icons.get(target_bot.status, status_icons[None]), inline=True)
+    
+    # ไอดีของบอท
+    embed.add_field(name="ID", value=target_bot.id, inline=True)
+    
+    # วันที่เข้าร่วมเซิร์ฟเวอร์
+    joined_at = target_bot.joined_at.strftime("%Y-%m-%d %H:%M:%S") if target_bot.joined_at else "ไม่ทราบ"
+    embed.add_field(name="เข้าร่วมเมื่อ", value=joined_at, inline=True)
+    
+    # วันที่สร้างบัญชี
+    created_at = target_bot.created_at.strftime("%Y-%m-%d %H:%M:%S") if target_bot.created_at else "ไม่ทราบ"
+    embed.add_field(name="สร้างเมื่อ", value=created_at, inline=True)
+    
+    # กิจกรรมปัจจุบัน
+    activity_text = "ไม่มีกิจกรรม"
+    if target_bot.activity:
+        activity_type = {
+            discord.ActivityType.playing: "กำลังเล่น",
+            discord.ActivityType.streaming: "กำลังสตรีม",
+            discord.ActivityType.listening: "กำลังฟัง",
+            discord.ActivityType.watching: "กำลังดู",
+            discord.ActivityType.custom: "",
+            discord.ActivityType.competing: "กำลังแข่งขัน"
+        }.get(target_bot.activity.type, "")
+        
+        if activity_type:
+            activity_text = f"{activity_type} {target_bot.activity.name}"
+        elif isinstance(target_bot.activity, discord.CustomActivity) and target_bot.activity.name:
+            activity_text = target_bot.activity.name
+    
+    embed.add_field(name="กิจกรรม", value=activity_text, inline=True)
+    
+    # บทบาททั้งหมด
+    roles = [role.mention for role in target_bot.roles if role.name != "@everyone"]
+    roles_text = ", ".join(roles) if roles else "ไม่มีบทบาท"
+    embed.add_field(name="บทบาท", value=roles_text, inline=False)
+    
+    await ctx.send(embed=embed)
+
+# งานหลักตอนเริ่มบอท
+load_config()
+keep_alive()
+
+bot.run(os.getenv('discordkey'))
