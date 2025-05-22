@@ -358,8 +358,8 @@ class RegisterButton(discord.ui.View):
 # Modal สำหรับกรอกเหตุผลการปฏิเสธ
 class RejectReasonModal(ui.Modal, title="เหตุผลการปฏิเสธ"):
     reason = ui.TextInput(
-        label="เหตุผลการปฏิเสธ",
-        placeholder="กรุณากรอกเหตุผลการปฏิเสธการลงทะเบียน...",
+        label="กรุณาระบุเหตุผลการปฏิเสธ",
+        placeholder="ตัวอย่าง: ข้อมูล Steam ID ไม่ถูกต้อง, ข้อมูลอาชีพไม่ครบถ้วน...",
         style=discord.TextStyle.paragraph,
         required=True,
         max_length=1000
@@ -370,7 +370,13 @@ class RejectReasonModal(ui.Modal, title="เหตุผลการปฏิเ
         self.original_view = original_view
     
     async def on_submit(self, interaction: discord.Interaction):
+        # ตรวจสอบว่ามีเหตุผลหรือไม่
+        if not self.reason.value.strip():
+            await interaction.response.send_message("กรุณากรอกเหตุผลการปฏิเสธ", ephemeral=True)
+            return
+        
         # ดำเนินการปฏิเสธพร้อมเหตุผล
+        await interaction.response.defer(ephemeral=True)
         await self.original_view.perform_reject_with_reason(interaction, self.reason.value)
 
 # ปุ่มสำหรับทีมงานยืนยันการอนุมัติหรือปฏิเสธ
@@ -510,63 +516,64 @@ class AdminActionView(discord.ui.View):
             await interaction.response.send_message("ไม่พบข้อมูลการลงทะเบียนของผู้ใช้นี้", ephemeral=True)
     
     # ฟังก์ชันสำหรับดำเนินการปฏิเสธหลังจากยืนยันแล้ว (พร้อมเหตุผล)
-async def perform_reject_with_reason(self, interaction, reason):
-    """ปฏิเสธผู้ใช้พร้อมเหตุผลและลบข้อมูลเก่า"""
-    registrations = load_registrations()
-    user_id_str = str(self.user_id)
+    async def perform_reject_with_reason(self, interaction, reason):
+        """ปฏิเสธผู้ใช้พร้อมเหตุผลและลบข้อมูลเก่า"""
+        registrations = load_registrations()
+        user_id_str = str(self.user_id)
     
-    if user_id_str in registrations:
-        # แจ้งเตือนผู้ใช้ว่าถูกปฏิเสธพร้อมเหตุผล
-        guild = interaction.guild
-        member = guild.get_member(self.user_id)
+        if user_id_str in registrations:
+            # แจ้งเตือนผู้ใช้ว่าถูกปฏิเสธพร้อมเหตุผล
+            guild = interaction.guild
+            member = guild.get_member(self.user_id)
         
-        if member:
-            try:
-                reject_embed = discord.Embed(
-                    title="❌ การลงทะเบียนไม่ได้รับการอนุมัติ",
-                    description="ขออภัย คำขอลงทะเบียนของคุณไม่ได้รับการอนุมัติ",
-                    color=discord.Color.red()
-                )
-                reject_embed.add_field(
-                    name="เหตุผล",
-                    value=reason,
-                    inline=False
-                )
-                reject_embed.add_field(
-                    name="ข้อแนะนำ",
-                    value="กรุณาแก้ไขตามเหตุผลข้างต้นและส่งแบบฟอร์มลงทะเบียนใหม่ที่ช่อง <#1361242784509726791>",
-                    inline=False
-                )
+            if member:
+                try:
+                    reject_embed = discord.Embed(
+                        title="❌ การลงทะเบียนไม่ได้รับการอนุมัติ",
+                        description="ขออภัย คำขอลงทะเบียนของคุณไม่ได้รับการอนุมัติ",
+                        color=discord.Color.red()
+                    )
+                    reject_embed.add_field(
+                        name="เหตุผล",
+                        value=reason,
+                        inline=False
+                    )
+                    reject_embed.add_field(
+                        name="ข้อแนะนำ",
+                        value="กรุณาแก้ไขตามเหตุผลข้างต้นและส่งแบบฟอร์มลงทะเบียนใหม่ที่ช่อง <#1361242784509726791>",
+                        inline=False
+                    )
                 
-                await member.send(embed=reject_embed)
-            except:
-                pass  # อาจไม่สามารถส่งข้อความส่วนตัวได้
+                    await member.send(embed=reject_embed)
+                except discord.Forbidden:
+                    # ไม่สามารถส่ง DM ให้ผู้ใช้ได้
+                    pass
         
-        # ลบข้อมูลออกจากไฟล์
-        del registrations[user_id_str]
-        save_registrations(registrations)
+            # ลบข้อมูลออกจากไฟล์
+            del registrations[user_id_str]
+            save_registrations(registrations)
         
-        # สร้าง embed สำหรับแสดงเหตุผลการปฏิเสธ
-        reject_info_embed = discord.Embed(
-            title="❌ การลงทะเบียนถูกปฏิเสธ",
-            description=f"การลงทะเบียนของ <@{self.user_id}> ถูกปฏิเสธโดย {interaction.user.mention}",
-            color=discord.Color.red()
-        )
-        reject_info_embed.add_field(
-            name="เหตุผลการปฏิเสธ",
-            value=reason,
-            inline=False
-        )
+            # สร้าง embed สำหรับแสดงเหตุผลการปฏิเสธ
+            reject_info_embed = discord.Embed(
+                title="❌ การลงทะเบียนถูกปฏิเสธ",
+                description=f"การลงทะเบียนของ <@{self.user_id}> ถูกปฏิเสธโดย {interaction.user.mention}",
+                color=discord.Color.red()
+            )
+            reject_info_embed.add_field(
+                name="เหตุผลการปฏิเสธ",
+                value=reason,
+                inline=False
+            )
         
-        # ปรับปรุงข้อความทีมงาน
-        await interaction.message.edit(
-            content="",
-            embed=reject_info_embed,
-            view=None
-        )
-        await interaction.response.send_message("ปฏิเสธผู้ใช้เรียบร้อยแล้ว และส่งเหตุผลให้ผู้ใช้แล้ว", ephemeral=True)
-    else:
-        await interaction.response.send_message("ไม่พบข้อมูลการลงทะเบียนของผู้ใช้นี้", ephemeral=True)
+            # ปรับปรุงข้อความทีมงาน
+            await interaction.message.edit(
+                content="",
+                embed=reject_info_embed,
+                view=None
+            )
+            await interaction.response.send_message("ปฏิเสธผู้ใช้เรียบร้อยแล้ว และส่งเหตุผลให้ผู้ใช้แล้ว", ephemeral=True)
+        else:
+            await interaction.response.send_message("ไม่พบข้อมูลการลงทะเบียนของผู้ใช้นี้", ephemeral=True)
 
 @bot.event
 async def on_ready():
