@@ -32,7 +32,7 @@ CONFIG_FILE = "config.json"
 
 # เพิ่มตัวแปรสำหรับเก็บสถานะบอทก่อนหน้า
 bot_status_cache = {}
-# เพิ่มตัวแปรสำหรับเก็บ ID ของข้อความสถานะบอท
+# เพิ่มตัวแปรสำหรับเก็บ ID ของข้อความสถานะบอท (ปรับปรุงให้เก็บเป็น dict แต่ละเซิร์ฟเวอร์)
 bot_status_message_ids = {}
 
 # Load all log registrations
@@ -250,13 +250,11 @@ async def generate_bot_status_embed(guild):
         inline=False
     )
     
-    # ลบ footer timestamp ออก (ไม่ใส่ set_footer)
-    
     return embed
 
-# สร้างฟังก์ชันสำหรับอัปเดตข้อความสถานะบอท (ปรับปรุงให้ใช้ข้อความเดิม)
+# ปรับปรุงฟังก์ชันสำหรับอัปเดตข้อความสถานะบอท (ใช้ข้อความเดิมเท่านั้น)
 async def update_bot_status_message(guild, force_update=False):
-    """อัปเดตข้อความสถานะบอทในช่องที่กำหนด (ใช้ข้อความเดิม)"""
+    """อัปเดตข้อความสถานะบอทในช่องที่กำหนด (ใช้ข้อความเดิมเท่านั้น)"""
     channel = bot.get_channel(BOT_STATUS_CHANNEL_ID)
     if not channel:
         print(f"ไม่พบช่องสำหรับแสดงสถานะบอท (ID: {BOT_STATUS_CHANNEL_ID})")
@@ -266,41 +264,63 @@ async def update_bot_status_message(guild, force_update=False):
     if not force_update and not has_bot_status_changed(guild):
         return  # ไม่มีการเปลี่ยนแปลง ไม่ต้องอัพเดต
     
-    # ตรวจสอบว่ามีข้อความสถานะเก่าอยู่หรือไม่
+    # ค้นหาข้อความสถานะปัจจุบัน
     status_message = None
     guild_id_str = str(guild.id)
     
-    # ลองดึงข้อความจาก ID ที่บันทึกไว้
+    # ลองดึงข้อความจาก ID ที่บันทึกไว้ก่อน
     if guild_id_str in bot_status_message_ids:
         try:
             message_id = bot_status_message_ids[guild_id_str]
             status_message = await channel.fetch_message(message_id)
             
             # ตรวจสอบว่าข้อความนี้เป็นของบอทเราและมี embed ที่ถูกต้อง
-            if status_message.author != bot.user or not status_message.embeds or "ข้อมูลเซิฟเวอร์" not in status_message.embeds[0].title:
+            if (status_message.author != bot.user or 
+                not status_message.embeds or 
+                "ข้อมูลเซิฟเวอร์" not in status_message.embeds[0].title):
                 status_message = None
                 # ลบ ID ที่ไม่ถูกต้องออกจาก cache
                 del bot_status_message_ids[guild_id_str]
                 save_config()
+                print(f"ลบ cache message ID ที่ไม่ถูกต้องสำหรับเซิร์ฟเวอร์ {guild.name}")
         except (discord.NotFound, discord.HTTPException):
             # ข้อความถูกลบแล้ว ลบ ID ออกจาก cache
             if guild_id_str in bot_status_message_ids:
                 del bot_status_message_ids[guild_id_str]
                 save_config()
             status_message = None
+            print(f"ข้อความสถานะเก่าถูกลบแล้วสำหรับเซิร์ฟเวอร์ {guild.name}")
     
     # ถ้าไม่มีข้อความที่บันทึกไว้ หรือข้อความถูกลบ ให้ค้นหาในประวัติ
     if not status_message:
-        async for message in channel.history(limit=50):
+        print(f"กำลังค้นหาข้อความสถานะในประวัติของช่อง {channel.name}")
+        
+        # ลบข้อความสถานะเก่าทั้งหมดที่ซ้ำกันก่อน และเก็บข้อความล่าสุด
+        found_messages = []
+        async for message in channel.history(limit=100):
             if (message.author == bot.user and 
                 message.embeds and 
                 len(message.embeds) > 0 and 
                 "ข้อมูลเซิฟเวอร์" in message.embeds[0].title):
-                status_message = message
-                # บันทึก ID ของข้อความที่พบ
-                bot_status_message_ids[guild_id_str] = message.id
-                save_config()
-                break
+                found_messages.append(message)
+        
+        if found_messages:
+            # เรียงลำดับตามเวลา (ใหม่สุดไปเก่าสุด)
+            found_messages.sort(key=lambda m: m.created_at, reverse=True)
+            status_message = found_messages[0]  # ใช้ข้อความล่าสุด
+            
+            # ลบข้อความเก่าที่เหลือ
+            for old_message in found_messages[1:]:
+                try:
+                    await old_message.delete()
+                    print(f"ลบข้อความสถานะซ้ำ ID: {old_message.id}")
+                except:
+                    pass
+            
+            # บันทึก ID ของข้อความที่เลือกใช้
+            bot_status_message_ids[guild_id_str] = status_message.id
+            save_config()
+            print(f"พบและใช้ข้อความสถานะ ID: {status_message.id}")
     
     # สร้าง embed สถานะบอท
     embed = await generate_bot_status_embed(guild)
@@ -312,23 +332,12 @@ async def update_bot_status_message(guild, force_update=False):
             await status_message.edit(embed=embed)
             print(f"อัพเดตสถานะบอทในเซิร์ฟเวอร์ {guild.name} (แก้ไขข้อความเดิม)")
         else:
-            # ลบข้อความเก่าทั้งหมดก่อนส่งข้อความใหม่
-            async for message in channel.history(limit=50):
-                if (message.author == bot.user and 
-                    message.embeds and 
-                    len(message.embeds) > 0 and 
-                    "ข้อมูลเซิฟเวอร์" in message.embeds[0].title):
-                    try:
-                        await message.delete()
-                    except:
-                        pass
-            
-            # ส่งข้อความใหม่
+            # ส่งข้อความใหม่เฉพาะเมื่อไม่มีข้อความเดิม
             new_message = await channel.send(embed=embed)
             # บันทึก ID ของข้อความใหม่
             bot_status_message_ids[guild_id_str] = new_message.id
             save_config()
-            print(f"สร้างข้อความสถานะบอทใหม่ในเซิร์ฟเวอร์ {guild.name}")
+            print(f"สร้างข้อความสถานะบอทใหม่ในเซิร์ฟเวอร์ {guild.name} ID: {new_message.id}")
         
         # อัพเดต cache หลังจากอัพเดตข้อความสำเร็จ
         update_bot_status_cache(guild)
@@ -459,7 +468,7 @@ async def resetbotstatus(ctx):
     
     # ลบข้อความเก่าทั้งหมด
     deleted_count = 0
-    async for message in channel.history(limit=50):
+    async for message in channel.history(limit=100):  # เพิ่มจำนวนข้อความที่ค้นหา
         if (message.author == bot.user and 
             message.embeds and 
             len(message.embeds) > 0 and 
@@ -467,8 +476,9 @@ async def resetbotstatus(ctx):
             try:
                 await message.delete()
                 deleted_count += 1
-            except:
-                pass
+                print(f"ลบข้อความสถานะ ID: {message.id}")
+            except Exception as e:
+                print(f"ไม่สามารถลบข้อความ ID {message.id}: {e}")
     
     # ลบ message ID cache
     guild_id_str = str(ctx.guild.id)
@@ -1067,8 +1077,6 @@ async def bot_status(ctx, bot_name: str = None):
         value="# **IP:** ```79.127.213.68:7082```\n# **Password:** ```PlayerIsPrisoner```",
         inline=False
     )
-    
-    # ลบ footer timestamp ออก
     
     await ctx.send(embed=embed)
 
