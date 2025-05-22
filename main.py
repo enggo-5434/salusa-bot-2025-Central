@@ -713,19 +713,19 @@ async def bot_status(ctx, bot_name: str = None):
         # ค้นหาบอทตามชื่อที่ระบุ (ค้นหาแบบไม่คำนึงถึงตัวพิมพ์ใหญ่-เล็ก)
         filtered_bots = [bot for bot in bots if bot_name.lower() in bot.name.lower() or bot_name.lower() in bot.display_name.lower()]
         if not filtered_bots:
-            await ctx.send(f"ไม่พบบอทที่มีชื่อว่า '{bot_name}'")
+            await ctx.send(f"Not found '{bot_name}'")
             return
         bots = filtered_bots
     
     # ถ้าไม่มีบอทในเซิร์ฟเวอร์
     if not bots:
-        await ctx.send("ไม่พบบอทในเซิร์ฟเวอร์นี้")
+        await ctx.send("Not found bot available")
         return
     
     # สร้าง embed สำหรับแสดงสถานะบอท
     embed = discord.Embed(
-        title="📊 สถานะบอทในเซิร์ฟเวอร์",
-        description=f"พบบอททั้งหมด {len(bots)} ตัว",
+        title="📊 Bot Status",
+        description=f"Online {len(bots)}",
         color=discord.Color.blue(),
         timestamp=datetime.now()
     )
@@ -747,8 +747,8 @@ async def bot_status(ctx, bot_name: str = None):
     # เพิ่มหัวข้อสำหรับบอทออนไลน์
     if online_bots:
         embed.add_field(
-            name="🟢 บอทที่ออนไลน์",
-            value="บอทต่อไปนี้กำลังทำงานอยู่",
+            name="🟢 Online Status Bot",
+            value="Available Bot",
             inline=False
         )
         
@@ -756,24 +756,24 @@ async def bot_status(ctx, bot_name: str = None):
         for bot in online_bots:
             # ไอคอนสำหรับแต่ละสถานะ
             status_icons = {
-                discord.Status.online: "🟢 ออนไลน์",
-                discord.Status.idle: "🟡 ไม่อยู่",
-                discord.Status.dnd: "🔴 ห้ามรบกวน",
-                None: "🟢 ออนไลน์"  # กรณีไม่สามารถตรวจจับสถานะได้ แต่รู้ว่าไม่ได้ออฟไลน์
+                discord.Status.online: "🟢 Online",
+                discord.Status.idle: "🟡 Away",
+                discord.Status.dnd: "🔴 Busy",
+                None: "🟢 Online"  # กรณีไม่สามารถตรวจจับสถานะได้ แต่รู้ว่าไม่ได้ออฟไลน์
             }
             
-            status_text = status_icons.get(bot.status, "🟢 ออนไลน์")
+            status_text = status_icons.get(bot.status, "🟢 Online")
             
             # ตรวจสอบกิจกรรมของบอท
-            activity_text = ""
+            activity_text = "Activity"
             if bot.activity:
                 activity_type = {
-                    discord.ActivityType.playing: "กำลังเล่น",
-                    discord.ActivityType.streaming: "กำลังสตรีม",
-                    discord.ActivityType.listening: "กำลังฟัง",
-                    discord.ActivityType.watching: "กำลังดู",
+                    discord.ActivityType.playing: "Playing",
+                    discord.ActivityType.streaming: "Streaming",
+                    discord.ActivityType.listening: "Listening",
+                    discord.ActivityType.watching: "Watching",
                     discord.ActivityType.custom: "",
-                    discord.ActivityType.competing: "กำลังแข่งขัน"
+                    discord.ActivityType.competing: "Fighting"
                 }.get(bot.activity.type, "")
                 
                 if activity_type:
@@ -795,8 +795,8 @@ async def bot_status(ctx, bot_name: str = None):
     # เพิ่มหัวข้อสำหรับบอทออฟไลน์
     if offline_bots:
         embed.add_field(
-            name="⚫ บอทที่ออฟไลน์",
-            value="บอทต่อไปนี้ไม่ได้ทำงานอยู่",
+            name="⚫ Offline Status Bot",
+            value="Unavailable Bot",
             inline=False
         )
         
@@ -804,11 +804,11 @@ async def bot_status(ctx, bot_name: str = None):
         for bot in offline_bots:
             embed.add_field(
                 name=f"{bot.display_name}",
-                value="⚫ ออฟไลน์",
+                value="⚫ Offline",
                 inline=False
             )
     
-    embed.set_footer(text=f"อัปเดตล่าสุด: {datetime.now().strftime('%H:%M:%S')}")
+    embed.set_footer(text=f"Update: {datetime.now().strftime('%H:%M:%S')}")
     
     await ctx.send(embed=embed)
 
@@ -822,7 +822,7 @@ async def bot_info(ctx, *, bot_name: str):
             found_bots.append(member)
     
     if not found_bots:
-        await ctx.send(f"ไม่พบบอทที่มีชื่อว่า '{bot_name}'")
+        await ctx.send(f"Not found '{bot_name}'")
         return
     
     # ถ้าพบหลายบอท ให้แสดงบอทแรกที่พบ
@@ -830,7 +830,7 @@ async def bot_info(ctx, *, bot_name: str):
     
     # สร้าง embed สำหรับแสดงข้อมูลบอท
     embed = discord.Embed(
-        title=f"ข้อมูลบอท: {target_bot.display_name}",
+        title=f"Bot Status: {target_bot.display_name}",
         color=target_bot.color,
         timestamp=datetime.now()
     )
@@ -841,36 +841,36 @@ async def bot_info(ctx, *, bot_name: str):
     
     # สถานะออนไลน์
     status_icons = {
-        discord.Status.online: "🟢 ออนไลน์",
-        discord.Status.idle: "🟡 ไม่อยู่",
-        discord.Status.dnd: "🔴 ห้ามรบกวน",
-        discord.Status.offline: "⚫ ออฟไลน์",
-        discord.Status.invisible: "⚪ ซ่อนตัว",
-        None: "⚫ ไม่ทราบสถานะ"
+        discord.Status.online: "🟢 Online",
+        discord.Status.idle: "🟡 Away",
+        discord.Status.dnd: "🔴 Busy",
+        discord.Status.offline: "⚫ Offline",
+        discord.Status.invisible: "⚪ invisible",
+        None: "⚫ Not found"
     }
-    embed.add_field(name="สถานะ", value=status_icons.get(target_bot.status, status_icons[None]), inline=True)
+    embed.add_field(name="Status", value=status_icons.get(target_bot.status, status_icons[None]), inline=True)
     
     # ไอดีของบอท
     embed.add_field(name="ID", value=target_bot.id, inline=True)
     
     # วันที่เข้าร่วมเซิร์ฟเวอร์
     joined_at = target_bot.joined_at.strftime("%Y-%m-%d %H:%M:%S") if target_bot.joined_at else "ไม่ทราบ"
-    embed.add_field(name="เข้าร่วมเมื่อ", value=joined_at, inline=True)
+    embed.add_field(name="Join", value=joined_at, inline=True)
     
     # วันที่สร้างบัญชี
     created_at = target_bot.created_at.strftime("%Y-%m-%d %H:%M:%S") if target_bot.created_at else "ไม่ทราบ"
-    embed.add_field(name="สร้างเมื่อ", value=created_at, inline=True)
+    embed.add_field(name="Created", value=created_at, inline=True)
     
     # กิจกรรมปัจจุบัน
-    activity_text = "ไม่มีกิจกรรม"
+    activity_text = "No activity"
     if target_bot.activity:
         activity_type = {
-            discord.ActivityType.playing: "กำลังเล่น",
-            discord.ActivityType.streaming: "กำลังสตรีม",
-            discord.ActivityType.listening: "กำลังฟัง",
-            discord.ActivityType.watching: "กำลังดู",
+            discord.ActivityType.playing: "Playing",
+            discord.ActivityType.streaming: "Streaming",
+            discord.ActivityType.listening: "Listening",
+            discord.ActivityType.watching: "Watching",
             discord.ActivityType.custom: "",
-            discord.ActivityType.competing: "กำลังแข่งขัน"
+            discord.ActivityType.competing: "Fighting"
         }.get(target_bot.activity.type, "")
         
         if activity_type:
@@ -878,7 +878,7 @@ async def bot_info(ctx, *, bot_name: str):
         elif isinstance(target_bot.activity, discord.CustomActivity) and target_bot.activity.name:
             activity_text = target_bot.activity.name
     
-    embed.add_field(name="กิจกรรม", value=activity_text, inline=True)
+    embed.add_field(name="ctivity", value=activity_text, inline=True)
     
     # บทบาททั้งหมด
     roles = [role.mention for role in target_bot.roles if role.name != "@everyone"]
