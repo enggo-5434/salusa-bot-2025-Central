@@ -68,7 +68,7 @@ async def generate_bot_status_embed(guild):
     # ถ้าไม่มีบอทในเซิร์ฟเวอร์
     if not bots:
         embed = discord.Embed(
-            title="📊 สถานะบอทในเซิร์ฟเวอร์",
+            title="📊 ข้อมูลเซิฟเวอร์",
             description="ไม่พบบอทในเซิร์ฟเวอร์นี้",
             color=discord.Color.blue(),
             timestamp=datetime.now()
@@ -77,7 +77,7 @@ async def generate_bot_status_embed(guild):
     
     # สร้าง embed สำหรับแสดงสถานะบอท
     embed = discord.Embed(
-        title="📊 สถานะบอทในเซิร์ฟเวอร์",
+        title="📊 ข้อมูลเซิร์ฟเวอร์",
         description=f"พบบอททั้งหมด {len(bots)} ตัว",
         color=discord.Color.blue(),
         timestamp=datetime.now()
@@ -175,7 +175,7 @@ async def generate_bot_status_embed(guild):
     
     # เพิ่ม Server Info หลังจากแสดงสถานะบอท
     embed.add_field(
-        name="🌐 ข้อมูลเซิร์ฟเวอร์",
+        name="IP และ Password",
         value="# **IP:** ```79.127.213.68:7082```\n# **Password:** ```PlayerIsPrisoner```",
         inline=False
     )
@@ -195,7 +195,7 @@ async def update_bot_status_message(guild):
     # ตรวจสอบว่ามีข้อความสถานะอยู่แล้วหรือไม่
     status_message = None
     async for message in channel.history(limit=50):
-        if message.author == bot.user and message.embeds and "สถานะบอทในเซิร์ฟเวอร์" in message.embeds[0].title:
+        if message.author == bot.user and message.embeds and "ข้อมูลเซิฟเวอร์" in message.embeds[0].title:
             status_message = message
             break
     
@@ -809,7 +809,7 @@ async def bot_status(ctx, bot_name: str = None):
     
     # สร้าง embed สำหรับแสดงสถานะบอท
     embed = discord.Embed(
-        title="📊 สถานะบอทในเซิร์ฟเวอร์",
+        title="📊 ข้อมูลเซิร์ฟเวอร์",
         description=f"พบบอททั้งหมด {len(bots)} ตัว",
         color=discord.Color.blue(),
         timestamp=datetime.now()
@@ -895,7 +895,7 @@ async def bot_status(ctx, bot_name: str = None):
     
     # เพิ่ม Server Info หลังจากแสดงสถานะบอท
     embed.add_field(
-        name="🌐 ข้อมูลเซิร์ฟเวอร์",
+        name="IP และ Password",
         value="# **IP:** ```79.127.213.68:7082```\n# **Password:** ```PlayerIsPrisoner```",
         inline=False
     )
