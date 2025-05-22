@@ -437,77 +437,77 @@ class AdminActionView(discord.ui.View):
     
     # ฟังก์ชันสำหรับดำเนินการอนุมัติหลังจากยืนยันแล้ว
     async def perform_approve(self, interaction):
-    """อนุมัติผู้ใช้และแสดงข้อมูลอีกครั้งก่อนลบ"""
-    registrations = load_registrations()
-    user_id_str = str(self.user_id)
-    
-    if user_id_str in registrations:
-        user_data = registrations[user_id_str]
+        """อนุมัติผู้ใช้และแสดงข้อมูลอีกครั้งก่อนลบ"""
+        registrations = load_registrations()
+        user_id_str = str(self.user_id)
         
-        # ให้บทบาทกับผู้ใช้
-        guild = interaction.guild
-        member = guild.get_member(self.user_id)
-        
-        if member:
-            auto_role = guild.get_role(AUTOROLE_ID)
-            player_role = guild.get_role(PLAYER_ROLE_ID)
-            if player_role:
-                try:
-                    # ลบ Auto Role ออกก่อน
-                    if auto_role:
-                        await member.remove_roles(auto_role)
-                    
-                    # จากนั้นเพิ่ม Player Role
-                    await member.add_roles(player_role)
-                    
-                    # สร้าง embed สำหรับแสดงข้อมูลที่อนุมัติ
-                    approved_embed = discord.Embed(
-                        title="✅ การลงทะเบียนได้รับการอนุมัติ",
-                        description=f"ข้อมูลการลงทะเบียนของ {member.mention}",
-                        color=discord.Color.green(),
-                        timestamp=datetime.now()
-                    )
-                    approved_embed.add_field(name="ชื่อในเกม", value=user_data['in_game_name'], inline=False)
-                    approved_embed.add_field(name="Steam ID", value=user_data['steam_id'], inline=False)
-                    approved_embed.add_field(name="อาชีพที่สนใจ", value=user_data['profession'], inline=False)
-                    approved_embed.add_field(name="วิธีหาทอง", value=user_data['gold_methods'], inline=False)
-                    approved_embed.add_field(name="โซนต้องห้าม", value=user_data['server_rules'], inline=False)
-                    approved_embed.set_footer(text=f"อนุมัติโดย {interaction.user.display_name}")
-                    
-                    # แจ้งเตือนผู้ใช้ว่าได้รับการอนุมัติ
+        if user_id_str in registrations:
+            user_data = registrations[user_id_str]
+            
+            # ให้บทบาทกับผู้ใช้
+            guild = interaction.guild
+            member = guild.get_member(self.user_id)
+            
+            if member:
+                auto_role = guild.get_role(AUTOROLE_ID)
+                player_role = guild.get_role(PLAYER_ROLE_ID)
+                if player_role:
                     try:
-                        await member.send(
-                            "ยินดีด้วย! คำขอลงทะเบียนของคุณได้รับการอนุมัติแล้ว\n"
-                            "คุณสามารถเข้าร่วมเซิร์ฟเวอร์ได้ทันที",
-                            embed=approved_embed
+                        # ลบ Auto Role ออกก่อน
+                        if auto_role:
+                            await member.remove_roles(auto_role)
+                        
+                        # จากนั้นเพิ่ม Player Role
+                        await member.add_roles(player_role)
+                        
+                        # สร้าง embed สำหรับแสดงข้อมูลที่อนุมัติ
+                        approved_embed = discord.Embed(
+                            title="✅ การลงทะเบียนได้รับการอนุมัติ",
+                            description=f"ข้อมูลการลงทะเบียนของ {member.mention}",
+                            color=discord.Color.green(),
+                            timestamp=datetime.now()
                         )
-                    except:
-                        pass  # อาจไม่สามารถส่งข้อความส่วนตัวได้
-                    
-                    # ส่งข้อมูลที่อนุมัติไปยังช่องแอดมินก่อนลบ
-                    admin_channel = bot.get_channel(ADMIN_CHANNEL_ID)
-                    if admin_channel:
-                        await admin_channel.send(
-                            f"✅ การลงทะเบียนของ {member.mention} ได้รับการอนุมัติโดย {interaction.user.mention}",
-                            embed=approved_embed
-                        )
-                    
-                    # ลบข้อมูลออกจากไฟล์
-                    del registrations[user_id_str]
-                    save_registrations(registrations)
-                    
-                    # ลบข้อความรอยืนยันเดิม
-                    await interaction.message.delete()
-                    
-                    await interaction.response.send_message("อนุมัติผู้ใช้เรียบร้อยแล้ว", ephemeral=True)
-                except Exception as e:
-                    await interaction.response.send_message(f"เกิดข้อผิดพลาด: {str(e)}", ephemeral=True)
+                        approved_embed.add_field(name="ชื่อในเกม", value=user_data['in_game_name'], inline=False)
+                        approved_embed.add_field(name="Steam ID", value=user_data['steam_id'], inline=False)
+                        approved_embed.add_field(name="อาชีพที่สนใจ", value=user_data['profession'], inline=False)
+                        approved_embed.add_field(name="วิธีหาทอง", value=user_data['gold_methods'], inline=False)
+                        approved_embed.add_field(name="โซนต้องห้าม", value=user_data['server_rules'], inline=False)
+                        approved_embed.set_footer(text=f"อนุมัติโดย {interaction.user.display_name}")
+                        
+                        # แจ้งเตือนผู้ใช้ว่าได้รับการอนุมัติ
+                        try:
+                            await member.send(
+                                "ยินดีด้วย! คำขอลงทะเบียนของคุณได้รับการอนุมัติแล้ว\n"
+                                "คุณสามารถเข้าร่วมเซิร์ฟเวอร์ได้ทันที",
+                                embed=approved_embed
+                            )
+                        except:
+                            pass  # อาจไม่สามารถส่งข้อความส่วนตัวได้
+                        
+                        # ส่งข้อมูลที่อนุมัติไปยังช่องแอดมินก่อนลบ
+                        admin_channel = bot.get_channel(ADMIN_CHANNEL_ID)
+                        if admin_channel:
+                            await admin_channel.send(
+                                f"✅ การลงทะเบียนของ {member.mention} ได้รับการอนุมัติโดย {interaction.user.mention}",
+                                embed=approved_embed
+                            )
+                        
+                        # ลบข้อมูลออกจากไฟล์
+                        del registrations[user_id_str]
+                        save_registrations(registrations)
+                        
+                        # ลบข้อความรอยืนยันเดิม
+                        await interaction.message.delete()
+                        
+                        await interaction.response.send_message("อนุมัติผู้ใช้เรียบร้อยแล้ว", ephemeral=True)
+                    except Exception as e:
+                        await interaction.response.send_message(f"เกิดข้อผิดพลาด: {str(e)}", ephemeral=True)
+                else:
+                    await interaction.response.send_message("ไม่พบบทบาทผู้เล่น โปรดตรวจสอบการตั้งค่า", ephemeral=True)
             else:
-                await interaction.response.send_message("ไม่พบบทบาทผู้เล่น โปรดตรวจสอบการตั้งค่า", ephemeral=True)
+                await interaction.response.send_message("ไม่พบผู้ใช้ในเซิร์ฟเวอร์", ephemeral=True)
         else:
-            await interaction.response.send_message("ไม่พบผู้ใช้ในเซิร์ฟเวอร์", ephemeral=True)
-    else:
-        await interaction.response.send_message("ไม่พบข้อมูลการลงทะเบียนของผู้ใช้นี้", ephemeral=True)
+            await interaction.response.send_message("ไม่พบข้อมูลการลงทะเบียนของผู้ใช้นี้", ephemeral=True)
     
     # ฟังก์ชันสำหรับดำเนินการปฏิเสธหลังจากยืนยันแล้ว (พร้อมเหตุผล)
 async def perform_reject_with_reason(self, interaction, reason):
