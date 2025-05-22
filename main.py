@@ -25,7 +25,7 @@ ADMIN_CHANNEL_ID = 1361241867798446171
 BOT_STATUS_CHANNEL_ID = 1374821568839942258 
 AUTOROLE_ID = 1361182119069749310  
 PLAYER_ROLE_ID = 1361186568416657593
-ADMIN_ROLE_ID = 1361241867798446171
+ADMIN_ROLE_ID = 1360585582832521236
 BANNER_TEMPLATE = "welcome_SalusaBG2.png"  
 REGISTRATIONS_FILE = "registrations.json"  
 CONFIG_FILE = "config.json"
@@ -434,12 +434,8 @@ class AdminActionView(discord.ui.View):
             await interaction.response.send_message("คุณไม่มีสิทธิ์ในการดำเนินการนี้", ephemeral=True)
             return
         
-        # แสดงข้อความยืนยันการปฏิเสธ
-        confirm_view = ConfirmActionView(self, "reject")
-        await interaction.response.edit_message(
-            content=f"คุณแน่ใจหรือไม่ที่จะปฏิเสธการลงทะเบียนของ <@{self.user_id}>?",
-            view=confirm_view
-        )
+        # แสดง Modal สำหรับกรอกเหตุผลโดยตรง โดยไม่ต้องผ่าน ConfirmActionView ก่อน
+        await interaction.response.send_modal(RejectReasonModal(self))
     
     # ฟังก์ชันสำหรับดำเนินการอนุมัติหลังจากยืนยันแล้ว
     async def perform_approve(self, interaction):
@@ -484,7 +480,7 @@ class AdminActionView(discord.ui.View):
                         try:
                             await member.send(
                                 "ยินดีด้วย! คำขอลงทะเบียนของคุณได้รับการอนุมัติแล้ว\n"
-                                "คุณสามารถเข้าร่วมเซิร์ฟเวอร์ได้ทันที",
+                                "คุณสามารถเข้าร่วมเซิร์ฟเวอร์ได้ทันที https://discord.com/channels/1360583634481975327/1374821568839942258 ",
                                 embed=approved_embed
                             )
                         except:
@@ -520,12 +516,12 @@ class AdminActionView(discord.ui.View):
         """ปฏิเสธผู้ใช้พร้อมเหตุผลและลบข้อมูลเก่า"""
         registrations = load_registrations()
         user_id_str = str(self.user_id)
-    
+        
         if user_id_str in registrations:
             # แจ้งเตือนผู้ใช้ว่าถูกปฏิเสธพร้อมเหตุผล
             guild = interaction.guild
             member = guild.get_member(self.user_id)
-        
+            
             if member:
                 try:
                     reject_embed = discord.Embed(
@@ -543,16 +539,16 @@ class AdminActionView(discord.ui.View):
                         value="กรุณาแก้ไขตามเหตุผลข้างต้นและส่งแบบฟอร์มลงทะเบียนใหม่ที่ช่อง <#1361242784509726791>",
                         inline=False
                     )
-                
+                    
                     await member.send(embed=reject_embed)
                 except discord.Forbidden:
                     # ไม่สามารถส่ง DM ให้ผู้ใช้ได้
                     pass
-        
+            
             # ลบข้อมูลออกจากไฟล์
             del registrations[user_id_str]
             save_registrations(registrations)
-        
+            
             # สร้าง embed สำหรับแสดงเหตุผลการปฏิเสธ
             reject_info_embed = discord.Embed(
                 title="❌ การลงทะเบียนถูกปฏิเสธ",
@@ -564,16 +560,19 @@ class AdminActionView(discord.ui.View):
                 value=reason,
                 inline=False
             )
-        
+            
             # ปรับปรุงข้อความทีมงาน
-            await interaction.message.edit(
-                content="",
-                embed=reject_info_embed,
-                view=None
-            )
-            await interaction.response.send_message("ปฏิเสธผู้ใช้เรียบร้อยแล้ว และส่งเหตุผลให้ผู้ใช้แล้ว", ephemeral=True)
+            try:
+                await interaction.message.edit(
+                    content="",
+                    embed=reject_info_embed,
+                    view=None
+                )
+                await interaction.followup.send("ปฏิเสธผู้ใช้เรียบร้อยแล้ว และส่งเหตุผลให้ผู้ใช้แล้ว", ephemeral=True)
+            except Exception as e:
+                print(f"Error updating rejection message: {e}")
         else:
-            await interaction.response.send_message("ไม่พบข้อมูลการลงทะเบียนของผู้ใช้นี้", ephemeral=True)
+            await interaction.followup.send("ไม่พบข้อมูลการลงทะเบียนของผู้ใช้นี้", ephemeral=True)    
 
 @bot.event
 async def on_ready():
