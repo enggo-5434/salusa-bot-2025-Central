@@ -19,7 +19,7 @@ intents.presences = True  # เพิ่ม presence intent เพื่อใ�
 
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-WELCOME_CHANNEL_ID = 1372511440786817075  
+WELCOME_CHANNEL_ID = 1375102199327363083  
 REGISTER_CHANNEL_ID = 1361242784509726791 
 ADMIN_CHANNEL_ID = 1361241867798446171
 BOT_STATUS_CHANNEL_ID = 1374821568839942258 
