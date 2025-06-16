@@ -23,9 +23,32 @@ ADMIN_CHANNEL_ID = 1361241867798446171
 AUTOROLE_ID = 1361182119069749310  
 PLAYER_ROLE_ID = 1361186568416657593
 ADMIN_ROLE_ID = 1360585582832521236
+PROFESSION_DISPLAY_CHANNEL_ID = 1384193675566776391
 BANNER_TEMPLATE = "welcome_SalusaBG2.png"  
 REGISTRATIONS_FILE = "registrations.json"  
 CONFIG_FILE = "config.json"
+
+# Dictionary สำหรับเก็บข้อมูลอาชีพและ Role ID
+PROFESSIONS = {
+    1361305826798604440: "ผู้พิทักษ์",
+    1361303692766216313: "อันธพาล", 
+    1361303934563778751: "เพลงดาบทมิฬ",
+    1361304137979002991: "เสียงกรีดร้อง",
+    1361304383345918022: "แสงยานุภาพ",
+    1361304546068005064: "สายธาร",
+    1361304712061648908: "มุมมืด",
+    1361304887253667921: "เปลวเพลิง",
+    1361305463718936616: "สายฟ้า",
+    1361305165336150096: "สายลม",
+    1361305687103111238: "ปากท้อง",
+    1361306017438109808: "ฟันเฟือง",
+    1361306190868516897: "เมล็ดพันธุ์",
+    1361306485409190061: "นักตกปลา",
+    1361306651054968994: "แสงสีทอง"
+}
+
+# เก็บ Message ID ของข้อความแสดงรายชื่อแต่ละอาชีพ
+profession_messages = {}
 
 # Load all log registrations
 def load_registrations():
@@ -558,6 +581,180 @@ async def registrations(ctx):
             inline=False
         )
     
+    await ctx.send(embed=embed)
+
+async def create_profession_embed(role_id, guild):
+    """สร้าง embed สำหรับอาชีพหนึ่งๆ"""
+    role = guild.get_role(role_id)
+    if not role:
+        return None
+    
+    profession_name = PROFESSIONS[role_id]
+    
+    # สร้าง embed สำหรับอาชีพนี้
+    embed = discord.Embed(
+        title=f"🎭 อาชีพ: {profession_name}",
+        color=role.color if role.color != discord.Color.default() else discord.Color.blue(),
+        timestamp=datetime.now()
+    )
+    
+    if role.members:
+        member_list = []
+        for member in role.members:
+            # ใช้วันที่เข้าร่วมเซิร์ฟเวอร์เป็นข้อมูลอ้างอิง
+            join_date = member.joined_at.strftime("%d/%m/%Y") if member.joined_at else "ไม่ทราบ"
+            
+            # รูปแบบการแสดงผล: Avatar + ชื่อ + วันที่
+            member_info = f"{member.mention} • **{member.display_name}** • `{join_date}`"
+            member_list.append(member_info)
+        
+        # แบ่งรายชื่อเป็นหลายฟิลด์ถ้ามีมากเกินไป
+        if len(member_list) <= 15:
+            embed.add_field(
+                name=f"👥 สมาชิก ({len(member_list)} คน)",
+                value="\n".join(member_list),
+                inline=False
+            )
+        else:
+            # แบ่งเป็นหลายฟิลด์
+            for i in range(0, len(member_list), 15):
+                chunk = member_list[i:i+15]
+                field_name = f"👥 สมาชิก ({i+1}-{min(i+15, len(member_list))})"
+                embed.add_field(
+                    name=field_name,
+                    value="\n".join(chunk),
+                    inline=False
+                )
+    else:
+        embed.add_field(
+            name="👥 สมาชิก",
+            value="*ยังไม่มีสมาชิกในอาชีพนี้*",
+            inline=False
+        )
+    
+    embed.set_footer(text="อัปเดตล่าสุด")
+    return embed
+
+async def update_profession_display():
+    """อัปเดตการแสดงผลรายชื่อผู้ใช้ตามอาชีพทั้งหมด"""
+    channel = bot.get_channel(PROFESSION_DISPLAY_CHANNEL_ID)
+    if not channel:
+        return
+    
+    # ลบข้อความเก่าทั้งหมดของบอท
+    async for message in channel.history(limit=100):
+        if message.author == bot.user:
+            await message.delete()
+    
+    profession_messages.clear()
+    
+    # สร้างข้อความใหม่สำหรับแต่ละอาชีพ
+    for role_id in PROFESSIONS.keys():
+        embed = await create_profession_embed(role_id, channel.guild)
+        if embed:
+            message = await channel.send(embed=embed)
+            profession_messages[role_id] = message.id
+
+async def update_single_profession_display(role_id, guild):
+    """อัปเดตการแสดงผลของอาชีพเดียว"""
+    channel = bot.get_channel(PROFESSION_DISPLAY_CHANNEL_ID)
+    if not channel or role_id not in PROFESSIONS:
+        return
+    
+    embed = await create_profession_embed(role_id, guild)
+    if not embed:
+        return
+    
+    # อัปเดตข้อความเดิมหรือสร้างใหม่
+    if role_id in profession_messages:
+        try:
+            message = await channel.fetch_message(profession_messages[role_id])
+            await message.edit(embed=embed)
+        except discord.NotFound:
+            # ข้อความเก่าถูกลบแล้ว สร้างใหม่
+            message = await channel.send(embed=embed)
+            profession_messages[role_id] = message.id
+    else:
+        message = await channel.send(embed=embed)
+        profession_messages[role_id] = message.id
+
+# Event สำหรับตรวจจับการเปลี่ยนแปลง role
+@bot.event
+async def on_member_update(before, after):
+    """ตรวจจับการเปลี่ยนแปลง role ของสมาชิก"""
+    # เช็คว่า role เปลี่ยนแปลงหรือไม่
+    before_roles = set(role.id for role in before.roles)
+    after_roles = set(role.id for role in after.roles)
+    
+    # หา role ที่เพิ่มหรือลบ
+    added_roles = after_roles - before_roles
+    removed_roles = before_roles - after_roles
+    
+    # อัปเดตการแสดงผลสำหรับ role ที่เปลี่ยนแปลง
+    changed_profession_roles = (added_roles | removed_roles) & set(PROFESSIONS.keys())
+    
+    for role_id in changed_profession_roles:
+        await update_single_profession_display(role_id, after.guild)
+
+# คำสั่งสำหรับทีมงานในการรีเฟรชการแสดงผล
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def refresh_professions(ctx):
+    """รีเฟรชการแสดงผลรายชื่อผู้ใช้ตามอาชีพ"""
+    await ctx.send("กำลังอัปเดตการแสดงผลรายชื่อผู้ใช้ตามอาชีพ...")
+    await update_profession_display()
+    await ctx.send("✅ อัปเดตการแสดงผลเรียบร้อยแล้ว!")
+
+# คำสั่งตั้งค่าช่องแสดงผล
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def set_profession_channel(ctx, channel: discord.TextChannel = None):
+    """ตั้งค่าช่องสำหรับแสดงรายชื่อผู้ใช้ตามอาชีพ"""
+    global PROFESSION_DISPLAY_CHANNEL_ID
+    
+    if channel is None:
+        channel = ctx.channel
+    
+    PROFESSION_DISPLAY_CHANNEL_ID = channel.id
+    await ctx.send(f"✅ ตั้งค่าช่องแสดงรายชื่อผู้ใช้ตามอาชีพเป็น {channel.mention} แล้ว")
+    
+    # อัปเดตการแสดงผลทันที
+    await update_profession_display()
+
+# คำสั่งแสดงสถิติอาชีพ
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def profession_stats(ctx):
+    """แสดงสถิติจำนวนสมาชิกในแต่ละอาชีพ"""
+    embed = discord.Embed(
+        title="📊 สถิติสมาชิกตามอาชีพ",
+        color=discord.Color.green(),
+        timestamp=datetime.now()
+    )
+    
+    total_members = 0
+    stats_list = []
+    
+    for role_id, profession_name in PROFESSIONS.items():
+        role = ctx.guild.get_role(role_id)
+        if role:
+            member_count = len(role.members)
+            total_members += member_count
+            stats_list.append(f"**{profession_name}**: {member_count} คน")
+    
+    embed.add_field(
+        name="จำนวนสมาชิกในแต่ละอาชีพ",
+        value="\n".join(stats_list) if stats_list else "ไม่มีข้อมูล",
+        inline=False
+    )
+    
+    embed.add_field(
+        name="รวมทั้งหมด",
+        value=f"**{total_members}** คน",
+        inline=False
+    )
+    
+    embed.set_footer(text="สถิติ ณ เวลา")
     await ctx.send(embed=embed)
 
 # งานหลักตอนเริ่มบอท
