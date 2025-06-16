@@ -15,7 +15,7 @@ intents = discord.Intents.default()
 intents.members = True  # new member in Dis
 intents.message_content = True  # Read text
 
-bot = commands.Bot(command_prefix='!', intents=intents)
+bot = commands.Bot(command_prefix='/', intents=intents)
 
 WELCOME_CHANNEL_ID = 1375102199327363083  
 REGISTER_CHANNEL_ID = 1361242784509726791 
@@ -593,7 +593,7 @@ async def create_profession_embed(role_id, guild):
     
     # สร้าง embed สำหรับอาชีพนี้
     embed = discord.Embed(
-        title=f"🎓 อาชีพ: {profession_name}",
+        title=f"🎓 อาชีพ: {profession_name}\u200B\u200B\u200B\u200B\u200B\u200B\u200B\u200B\u200B\u200B\u200B\u200B\u200B\u200B\u200B\u200B\u200B\u200B\u200B\u200B",
         color=role.color if role.color != discord.Color.default() else discord.Color.blue(),
         timestamp=datetime.now()
     )
