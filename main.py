@@ -624,7 +624,7 @@ async def create_profession_embed(role_id, guild):
         else:
             for i in range(0, len(member_list), 15):
                 chunk = member_list[i:i+15]
-                field_name = f"👥 สมาชิก ({i+1}-{min(i+15, len(member_list))})"
+                field_name = f"📗 รายชื่อสมาชิก ({i+1}-{min(i+15, len(member_list))})"
                 embed.add_field(
                     name=field_name,
                     value="\n".join(chunk),
