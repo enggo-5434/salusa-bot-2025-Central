@@ -593,11 +593,13 @@ async def create_profession_embed(role_id, guild):
     
     # สร้าง embed สำหรับอาชีพนี้
     embed = discord.Embed(
-        title=f"🎭 อาชีพ: {profession_name}",
+        title=f"🎓 อาชีพ: {profession_name}",
         color=role.color if role.color != discord.Color.default() else discord.Color.blue(),
         timestamp=datetime.now()
     )
-    
+    # เพิ่มบรรทัดนี้เพื่อแสดง role icon
+    if role.display_icon:
+        embed.set_thumbnail(url=role.display_icon.url)
     if role.members:
         member_list = []
         for member in role.members:
@@ -611,7 +613,7 @@ async def create_profession_embed(role_id, guild):
         # แบ่งรายชื่อเป็นหลายฟิลด์ถ้ามีมากเกินไป
         if len(member_list) <= 15:
             embed.add_field(
-                name=f"👥 สมาชิก ({len(member_list)} คน)",
+                name=f" 📗 รายชื่อสมาชิก ({len(member_list)} คน)",
                 value="\n".join(member_list),
                 inline=False
             )
@@ -756,6 +758,8 @@ async def profession_stats(ctx):
     
     embed.set_footer(text="สถิติ ณ เวลา")
     await ctx.send(embed=embed)
+
+
 
 # งานหลักตอนเริ่มบอท
 load_config()
