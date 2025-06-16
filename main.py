@@ -588,37 +588,40 @@ async def create_profession_embed(role_id, guild):
     role = guild.get_role(role_id)
     if not role:
         return None
-    
+
     profession_name = PROFESSIONS[role_id]
     
     # สร้าง embed สำหรับอาชีพนี้
     embed = discord.Embed(
-        title=f"🎓 อาชีพ: {profession_name}\u200B\u200B\u200B\u200B\u200B\u200B\u200B\u200B\u200B\u200B\u200B\u200B\u200B\u200B\u200B\u200B\u200B\u200B\u200B\u200B",
         color=role.color if role.color != discord.Color.default() else discord.Color.blue(),
         timestamp=datetime.now()
     )
-    # เพิ่มบรรทัดนี้เพื่อแสดง role icon
+    
+    # ใช้ set_author() เพื่อแสดง role icon และชื่ออาชีพ
     if role.display_icon:
-        embed.set_thumbnail(url=role.display_icon.url)
+        embed.set_author(
+            name=f"🎓 อาชีพ: {profession_name}",
+            icon_url=role.display_icon.url
+        )
+    else:
+        # หาก role ไม่มี icon ให้ใช้ title แบบเดิม
+        embed.title = f"🎓 อาชีพ: {profession_name}"
+    
+    # ส่วนที่เหลือของโค้ดเดิม...
     if role.members:
         member_list = []
         for member in role.members:
-            # ใช้วันที่เข้าร่วมเซิร์ฟเวอร์เป็นข้อมูลอ้างอิง
             join_date = member.joined_at.strftime("%d/%m/%Y") if member.joined_at else "ไม่ทราบ"
-            
-            # รูปแบบการแสดงผล: Avatar + ชื่อ + วันที่
             member_info = f"{member.mention} • **{member.display_name}** • `{join_date}`"
             member_list.append(member_info)
-        
-        # แบ่งรายชื่อเป็นหลายฟิลด์ถ้ามีมากเกินไป
+
         if len(member_list) <= 15:
             embed.add_field(
-                name=f" 📗 รายชื่อสมาชิก ({len(member_list)} คน)",
+                name=f"📗 รายชื่อสมาชิก ({len(member_list)} คน)",
                 value="\n".join(member_list),
                 inline=False
             )
         else:
-            # แบ่งเป็นหลายฟิลด์
             for i in range(0, len(member_list), 15):
                 chunk = member_list[i:i+15]
                 field_name = f"👥 สมาชิก ({i+1}-{min(i+15, len(member_list))})"
@@ -633,9 +636,10 @@ async def create_profession_embed(role_id, guild):
             value="*ยังไม่มีสมาชิกในอาชีพนี้*",
             inline=False
         )
-    
+
     embed.set_footer(text="อัปเดตล่าสุด")
     return embed
+
 
 async def update_profession_display():
     """อัปเดตการแสดงผลรายชื่อผู้ใช้ตามอาชีพทั้งหมด"""
