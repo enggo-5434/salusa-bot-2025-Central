@@ -133,15 +133,17 @@ async def on_submit(self, interaction: discord.Interaction):
             "username": interaction.user.name,
             "steam_id": self.steam_id.value,
             "character_name": self.character_name.value,
-            "player_type": self.player_type.value.strip().upper(),  # แปลงเป็นตัวพิมพ์ใหญ่และตัดช่องว่าง
+            "player_type": self.player_type.value.strip().upper(),
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
-
         registrations = load_registrations()
         registrations[str(interaction.user.id)] = data
         save_registrations(registrations)
 
-        # ส่ง DM ขอบคุณ
+        # ตอบกลับ interaction ทันที
+        await interaction.response.send_message("ลงทะเบียนเรียบร้อยแล้ว! คุณได้รับบทบาทผู้เล่นแล้ว", ephemeral=True)
+
+        # ส่ง DM ขอบคุณ (ไม่จำเป็นต้องรอ)
         try:
             await interaction.user.send(
                 f"ขอบคุณสำหรับการลงทะเบียน!\nSteam ID: {data['steam_id']}\n"
@@ -150,7 +152,7 @@ async def on_submit(self, interaction: discord.Interaction):
         except:
             pass
 
-        # ส่ง embed แจ้งแอดมิน
+        # แจ้งแอดมิน
         admin_channel = bot.get_channel(ADMIN_CHANNEL_ID)
         if admin_channel:
             embed = discord.Embed(title="การลงทะเบียนใหม่", color=discord.Color.blue())
@@ -163,34 +165,36 @@ async def on_submit(self, interaction: discord.Interaction):
         # เพิ่ม Role และตั้งชื่อเล่น
         guild = interaction.guild or (await bot.fetch_guild(interaction.guild_id))
         member = guild.get_member(interaction.user.id)
-        if member:
-            player_role = guild.get_role(PLAYER_ROLE_ID)
-            if player_role:
-                await member.add_roles(player_role)
-
-            # ตั้งชื่อเล่นตามเงื่อนไข PVP หรือ PVE
-            prefix = ""
-            if data['player_type'] == "PVP":
-                prefix = "PVP"
-            elif data['player_type'] == "PVE":
-                prefix = "PVE"
-            else:
-                prefix = data['player_type']  # กรณีอื่นๆ ใช้ตามที่กรอกมา
-
-            new_nick = f"{prefix}_{data['character_name']}"
+        if member is None:
             try:
-                await member.edit(nick=new_nick)
+                member = await guild.fetch_member(interaction.user.id)
             except Exception as e:
-                print(f"ไม่สามารถเปลี่ยนชื่อเล่นได้: {e}")
+                print(f"ไม่พบสมาชิก: {e}")
+                await interaction.response.send_message("ไม่สามารถค้นหาสมาชิกในเซิร์ฟเวอร์ได้", ephemeral=True)
+                return
 
-        await interaction.response.send_message("ลงทะเบียนเรียบร้อยแล้ว! คุณได้รับบทบาทผู้เล่นแล้ว", ephemeral=True)
+        player_role = guild.get_role(PLAYER_ROLE_ID)
+        if player_role:
+            try:
+                await member.add_roles(player_role)
+            except Exception as e:
+                print(f"เพิ่ม role ไม่สำเร็จ: {e}")
+
+        prefix = "PVP" if data['player_type'] == "PVP" else "PVE" if data['player_type'] == "PVE" else data['player_type']
+        new_nick = f"{prefix}_{data['character_name']}"
+        try:
+            await member.edit(nick=new_nick)
+        except Exception as e:
+            print(f"ไม่สามารถเปลี่ยนชื่อเล่นได้: {e}")
 
     except Exception as e:
         print(f"Error processing registration: {str(e)}")
-        try:
-            await interaction.response.send_message("เกิดข้อผิดพลาดในการลงทะเบียน โปรดลองใหม่อีกครั้ง", ephemeral=True)
-        except:
-            pass
+        # ตอบกลับ interaction เฉพาะถ้ายังไม่ได้ตอบ
+        if not interaction.response.is_done():
+            try:
+                await interaction.response.send_message("เกิดข้อผิดพลาดในการลงทะเบียน โปรดลองใหม่อีกครั้ง", ephemeral=True)
+            except:
+                pass
 
 # ปุ่มลงทะเบียน
 class RegisterButton(discord.ui.View):
