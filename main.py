@@ -126,65 +126,71 @@ class RegistrationForm(ui.Modal, title="ลงทะเบียนผู้เ�
     player_type = ui.TextInput(label="ประเภทผู้เล่น (PVP หรือ PVE)", placeholder="กรุณาพิมพ์ PVP หรือ PVE", required=True)
 
 
-    async def on_submit(self, interaction: discord.Interaction):
+async def on_submit(self, interaction: discord.Interaction):
+    try:
+        data = {
+            "user_id": interaction.user.id,
+            "username": interaction.user.name,
+            "steam_id": self.steam_id.value,
+            "character_name": self.character_name.value,
+            "player_type": self.player_type.value.strip().upper(),  # แปลงเป็นตัวพิมพ์ใหญ่และตัดช่องว่าง
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+
+        registrations = load_registrations()
+        registrations[str(interaction.user.id)] = data
+        save_registrations(registrations)
+
+        # ส่ง DM ขอบคุณ
         try:
-            data = {
-                "user_id": interaction.user.id,
-                "username": interaction.user.name,
-                "steam_id": self.steam_id.value,
-                "character_name": self.character_name.value,
-                "player_type": self.player_type.values[0],
-                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            }
-            registrations = load_registrations()
-            registrations[str(interaction.user.id)] = data
-            save_registrations(registrations)
+            await interaction.user.send(
+                f"ขอบคุณสำหรับการลงทะเบียน!\nSteam ID: {data['steam_id']}\n"
+                f"ชื่อตัวละคร: {data['character_name']}\nประเภทผู้เล่น: {data['player_type']}"
+            )
+        except:
+            pass
 
-            # ส่ง DM ให้ผู้เล่น
+        # ส่ง embed แจ้งแอดมิน
+        admin_channel = bot.get_channel(ADMIN_CHANNEL_ID)
+        if admin_channel:
+            embed = discord.Embed(title="การลงทะเบียนใหม่", color=discord.Color.blue())
+            embed.add_field(name="Steam ID", value=data['steam_id'], inline=False)
+            embed.add_field(name="ชื่อตัวละคร", value=data['character_name'], inline=False)
+            embed.add_field(name="ประเภทผู้เล่น", value=data['player_type'], inline=False)
+            embed.set_footer(text=f"ลงทะเบียนเมื่อ {data['timestamp']}")
+            await admin_channel.send(embed=embed)
+
+        # เพิ่ม Role และตั้งชื่อเล่น
+        guild = interaction.guild or (await bot.fetch_guild(interaction.guild_id))
+        member = guild.get_member(interaction.user.id)
+        if member:
+            player_role = guild.get_role(PLAYER_ROLE_ID)
+            if player_role:
+                await member.add_roles(player_role)
+
+            # ตั้งชื่อเล่นตามเงื่อนไข PVP หรือ PVE
+            prefix = ""
+            if data['player_type'] == "PVP":
+                prefix = "PVP"
+            elif data['player_type'] == "PVE":
+                prefix = "PVE"
+            else:
+                prefix = data['player_type']  # กรณีอื่นๆ ใช้ตามที่กรอกมา
+
+            new_nick = f"{prefix}_{data['character_name']}"
             try:
-                await interaction.user.send(
-                    f"ขอบคุณสำหรับการลงทะเบียน!\nSteam ID: {data['steam_id']}\nชื่อตัวละคร: {data['character_name']}\nประเภทผู้เล่น: {data['player_type']}"
-                )
-            except:
-                pass
+                await member.edit(nick=new_nick)
+            except Exception as e:
+                print(f"ไม่สามารถเปลี่ยนชื่อเล่นได้: {e}")
 
-            # สร้าง embed ส่งห้องแอดมิน
-            admin_channel = bot.get_channel(ADMIN_CHANNEL_ID)
-            if admin_channel:
-                embed = discord.Embed(
-                    title="การลงทะเบียนใหม่",
-                    color=discord.Color.blue()
-                )
-                embed.add_field(name="Steam ID", value=data['steam_id'], inline=False)
-                embed.add_field(name="ชื่อตัวละคร", value=data['character_name'], inline=False)
-                embed.add_field(name="ประเภทผู้เล่น", value=data['player_type'], inline=False)
-                embed.set_footer(text=f"ลงทะเบียนเมื่อ {data['timestamp']}")
-                await admin_channel.send(embed=embed)
+        await interaction.response.send_message("ลงทะเบียนเรียบร้อยแล้ว! คุณได้รับบทบาทผู้เล่นแล้ว", ephemeral=True)
 
-            # เพิ่ม Player Role ให้ทันที
-            guild = interaction.guild or (await bot.fetch_guild(interaction.guild_id))
-            member = guild.get_member(interaction.user.id)
-            if member:
-                player_role = guild.get_role(PLAYER_ROLE_ID)
-                if player_role:
-                    await member.add_roles(player_role)
-                # เปลี่ยนชื่อเล่น
-                try:
-                    await member.edit(nick=f"{data['player_type']}_{data['character_name']}")
-                except:
-                    pass
-
-            await interaction.response.send_message("ลงทะเบียนเรียบร้อยแล้ว! คุณได้รับบทบาทผู้เล่นแล้ว", ephemeral=True)
-
-        except Exception as e:
-            print(f"Error processing registration: {str(e)}")
-            try:
-                await interaction.response.send_message(
-                    "เกิดข้อผิดพลาดในการลงทะเบียน โปรดลองใหม่อีกครั้ง",
-                    ephemeral=True
-                )
-            except:
-                pass
+    except Exception as e:
+        print(f"Error processing registration: {str(e)}")
+        try:
+            await interaction.response.send_message("เกิดข้อผิดพลาดในการลงทะเบียน โปรดลองใหม่อีกครั้ง", ephemeral=True)
+        except:
+            pass
 
 # ปุ่มลงทะเบียน
 class RegisterButton(discord.ui.View):
