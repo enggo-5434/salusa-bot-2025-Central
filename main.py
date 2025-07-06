@@ -119,310 +119,86 @@ async def on_member_join(member):
 
 # Create registrations form Modal
 class RegistrationForm(ui.Modal, title="ลงทะเบียนผู้เล่น SALUSA"):
-    in_game_name = ui.TextInput(label="ชื่อในเกม", placeholder="กรุณากรอกชื่อตัวละครในเกม", required=True)
     steam_id = ui.TextInput(label="Steam ID", placeholder="กรุณากรอก Steam ID ของคุณ", required=True)
-    profession = ui.TextInput(label="คุณสนใจอาชีพไหนใน SALUSA", placeholder="กรุณากรอกอาชีพที่สนใจ", required=True)
-    gold_methods = ui.TextInput(label="คุณสามารถหาทอง [Gold] ได้จากวิธีใดบ้าง", placeholder="[ตัวอย่าง: นำขายเข้าตลาดหุ้น]", required=True)
-    server_rules = ui.TextInput(label="จะเกิดอะไรขึ้นหากทิ้งรถไว้ในโซนต้องห้าม", placeholder="[ตัวอย่าง: ได้รับเงิน SD 3000]", required=True)
+    character_name = ui.TextInput(label="ชื่อตัวละคร", placeholder="กรุณากรอกชื่อตัวละคร", required=True)
+    player_type = ui.Select(
+        placeholder="เลือกประเภทผู้เล่น",
+        min_values=1,
+        max_values=1,
+        options=[
+            SelectOption(label="PvP", value="PvP"),
+            SelectOption(label="PvE", value="PvE")
+        ]
+    )
 
     async def on_submit(self, interaction: discord.Interaction):
         try:
-            # รวบรวมข้อมูล
-            user_data = {
+            data = {
                 "user_id": interaction.user.id,
                 "username": interaction.user.name,
-                "in_game_name": self.in_game_name.value,
                 "steam_id": self.steam_id.value,
-                "profession": self.profession.value,
-                "gold_methods": self.gold_methods.value,
-                "server_rules": self.server_rules.value,
+                "character_name": self.character_name.value,
+                "player_type": self.player_type.values[0],
                 "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             }
-            
-            # บันทึกข้อมูลลงในไฟล์
             registrations = load_registrations()
-            
-            # ตรวจสอบว่าข้อมูลเดิมมีอยู่แล้วหรือไม่ (อนุญาตให้ส่งซ้ำได้)
-            if str(interaction.user.id) in registrations:
-                update_message = "ข้อมูลลงทะเบียนของคุณได้รับการอัปเดตแล้ว! ทีมงานจะตรวจสอบข้อมูลของคุณเร็วๆ นี้"
-            else:
-                update_message = "ขอบคุณสำหรับการลงทะเบียน! ทีมงานจะตรวจสอบข้อมูลของคุณเร็วๆ นี้"
-                
-            # บันทึกหรืออัปเดตข้อมูล
-            registrations[str(interaction.user.id)] = user_data
+            registrations[str(interaction.user.id)] = data
             save_registrations(registrations)
-            
-            # ตอบกลับผู้ใช้
-            await interaction.response.send_message(
-                update_message, 
-                ephemeral=True
-            )
-            
-            # ส่งแจ้งเตือนไปยังช่องทีมงาน (แยกออกจาก interaction response)
+
+            # ส่ง DM ให้ผู้เล่น
+            try:
+                await interaction.user.send(
+                    f"ขอบคุณสำหรับการลงทะเบียน!\nSteam ID: {data['steam_id']}\nชื่อตัวละคร: {data['character_name']}\nประเภทผู้เล่น: {data['player_type']}"
+                )
+            except:
+                pass
+
+            # สร้าง embed ส่งห้องแอดมิน
             admin_channel = bot.get_channel(ADMIN_CHANNEL_ID)
             if admin_channel:
-                # สร้าง embed สำหรับข้อมูลการลงทะเบียน
                 embed = discord.Embed(
                     title="การลงทะเบียนใหม่",
-                    description=f"ผู้ใช้ {interaction.user.mention} ได้ส่งคำขอลงทะเบียน",
                     color=discord.Color.blue()
                 )
-                embed.add_field(name="ชื่อในเกม", value=self.in_game_name.value, inline=False)
-                embed.add_field(name="Steam ID", value=self.steam_id.value, inline=False)
-                embed.add_field(name="อาชีพที่สนใจ", value=self.profession.value, inline=False)
-                embed.add_field(name="วิธีหาทอง", value=self.gold_methods.value, inline=False)
-                embed.add_field(name="โซนต้องห้าม", value=self.server_rules.value, inline=False)
-                
-                # สร้างปุ่มอนุมัติและปฏิเสธ
-                view = AdminActionView(interaction.user.id)
-                
-                # เพิ่ม mention admin role ในข้อความ
-                admin_role_mention = f"<@&{ADMIN_ROLE_ID}>"
-                await admin_channel.send(
-                    f"{admin_role_mention} มีการลงทะเบียนใหม่ที่รอการอนุมัติ!", 
-                    embed=embed, 
-                    view=view
-                )
-        
+                embed.add_field(name="Steam ID", value=data['steam_id'], inline=False)
+                embed.add_field(name="ชื่อตัวละคร", value=data['character_name'], inline=False)
+                embed.add_field(name="ประเภทผู้เล่น", value=data['player_type'], inline=False)
+                embed.set_footer(text=f"ลงทะเบียนเมื่อ {data['timestamp']}")
+                await admin_channel.send(embed=embed)
+
+            # เพิ่ม Player Role ให้ทันที
+            guild = interaction.guild or (await bot.fetch_guild(interaction.guild_id))
+            member = guild.get_member(interaction.user.id)
+            if member:
+                player_role = guild.get_role(PLAYER_ROLE_ID)
+                if player_role:
+                    await member.add_roles(player_role)
+                # เปลี่ยนชื่อเล่น
+                try:
+                    await member.edit(nick=f"{data['player_type']}_{data['character_name']}")
+                except:
+                    pass
+
+            await interaction.response.send_message("ลงทะเบียนเรียบร้อยแล้ว! คุณได้รับบทบาทผู้เล่นแล้ว", ephemeral=True)
+
         except Exception as e:
             print(f"Error processing registration: {str(e)}")
             try:
                 await interaction.response.send_message(
-                    "เกิดข้อผิดพลาดในการลงทะเบียน โปรดลองใหม่อีกครั้ง", 
+                    "เกิดข้อผิดพลาดในการลงทะเบียน โปรดลองใหม่อีกครั้ง",
                     ephemeral=True
                 )
             except:
-                # Interaction might have already been responded to
                 pass
 
 # ปุ่มลงทะเบียน
 class RegisterButton(discord.ui.View):
     def __init__(self):
-        super().__init__(timeout=None)  # ปุ่มไม่หมดอายุ
-    
+        super().__init__(timeout=None)
+
     @discord.ui.button(label="ลงทะเบียนที่นี่", style=discord.ButtonStyle.primary, emoji="📝")
     async def register_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # เปิดแบบฟอร์มลงทะเบียน
         await interaction.response.send_modal(RegistrationForm())
-
-# Modal สำหรับกรอกเหตุผลการปฏิเสธ
-class RejectReasonModal(ui.Modal, title="เหตุผลการปฏิเสธ"):
-    reason = ui.TextInput(
-        label="กรุณาระบุเหตุผลการปฏิเสธ",
-        placeholder="ตัวอย่าง: ข้อมูล Steam ID ไม่ถูกต้อง, ข้อมูลอาชีพไม่ครบถ้วน...",
-        style=discord.TextStyle.paragraph,
-        required=True,
-        max_length=1000
-    )
-    
-    def __init__(self, original_view):
-        super().__init__()
-        self.original_view = original_view
-    
-    async def on_submit(self, interaction: discord.Interaction):
-        # ตรวจสอบว่ามีเหตุผลหรือไม่
-        if not self.reason.value.strip():
-            await interaction.response.send_message("กรุณากรอกเหตุผลการปฏิเสธ", ephemeral=True)
-            return
-        
-        # ดำเนินการปฏิเสธพร้อมเหตุผล
-        await interaction.response.defer(ephemeral=True)
-        await self.original_view.perform_reject_with_reason(interaction, self.reason.value)
-
-# ปุ่มสำหรับทีมงานยืนยันการอนุมัติหรือปฏิเสธ
-class ConfirmActionView(discord.ui.View):
-    def __init__(self, original_view, action_type="approve"):
-        super().__init__(timeout=60)  # timeout หลังจาก 60 วินาที
-        self.original_view = original_view
-        self.action_type = action_type  # "approve" หรือ "reject"
-    
-    @discord.ui.button(label="ยืนยัน", style=discord.ButtonStyle.success, emoji="✅")
-    async def confirm_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not interaction.permissions.administrator:
-            await interaction.response.send_message("คุณไม่มีสิทธิ์ในการดำเนินการนี้", ephemeral=True)
-            return
-        
-        # ดำเนินการตามประเภทการกระทำ
-        if self.action_type == "approve":
-            await self.original_view.perform_approve(interaction)
-        else:
-            # สำหรับการปฏิเสธ ให้เปิด Modal เพื่อกรอกเหตุผล
-            await interaction.response.send_modal(RejectReasonModal(self.original_view))
-    
-    @discord.ui.button(label="ยกเลิก", style=discord.ButtonStyle.secondary, emoji="❌")
-    async def cancel_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not interaction.permissions.administrator:
-            await interaction.response.send_message("คุณไม่มีสิทธิ์ในการดำเนินการนี้", ephemeral=True)
-            return
-        
-        # ยกเลิกและกลับไปยังปุ่มเดิม
-        await interaction.response.edit_message(view=self.original_view)
-        await interaction.followup.send("ยกเลิกการดำเนินการแล้ว", ephemeral=True)
-
-# ปุ่มสำหรับทีมงานอนุมัติหรือปฏิเสธ
-class AdminActionView(discord.ui.View):
-    def __init__(self, user_id):
-        super().__init__(timeout=None)  # ปุ่มไม่หมดอายุ
-        self.user_id = user_id
-    
-    @discord.ui.button(label="อนุมัติ", style=discord.ButtonStyle.success, emoji="✅")
-    async def approve_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not interaction.permissions.administrator:
-            await interaction.response.send_message("คุณไม่มีสิทธิ์ในการดำเนินการนี้", ephemeral=True)
-            return
-        
-        # แสดงข้อความยืนยันการอนุมัติ
-        confirm_view = ConfirmActionView(self, "approve")
-        await interaction.response.edit_message(
-            content=f"คุณแน่ใจหรือไม่ที่จะอนุมัติการลงทะเบียนของ <@{self.user_id}>?",
-            view=confirm_view
-        )
-    
-    @discord.ui.button(label="ปฏิเสธ", style=discord.ButtonStyle.danger, emoji="❌")
-    async def reject_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not interaction.permissions.administrator:
-            await interaction.response.send_message("คุณไม่มีสิทธิ์ในการดำเนินการนี้", ephemeral=True)
-            return
-        
-        # แสดง Modal สำหรับกรอกเหตุผลโดยตรง โดยไม่ต้องผ่าน ConfirmActionView ก่อน
-        await interaction.response.send_modal(RejectReasonModal(self))
-    
-    # ฟังก์ชันสำหรับดำเนินการอนุมัติหลังจากยืนยันแล้ว
-    async def perform_approve(self, interaction):
-        """อนุมัติผู้ใช้และแสดงข้อมูลอีกครั้งก่อนลบ"""
-        registrations = load_registrations()
-        user_id_str = str(self.user_id)
-        
-        if user_id_str in registrations:
-            user_data = registrations[user_id_str]
-            
-            # ให้บทบาทกับผู้ใช้
-            guild = interaction.guild
-            member = guild.get_member(self.user_id)
-            
-            if member:
-                auto_role = guild.get_role(AUTOROLE_ID)
-                player_role = guild.get_role(PLAYER_ROLE_ID)
-                if player_role:
-                    try:
-                        # ลบ Auto Role ออกก่อน
-                        if auto_role:
-                            await member.remove_roles(auto_role)
-                        
-                        # จากนั้นเพิ่ม Player Role
-                        await member.add_roles(player_role)
-                        
-                        # สร้าง embed สำหรับแสดงข้อมูลที่อนุมัติ
-                        approved_embed = discord.Embed(
-                            title="✅ การลงทะเบียนได้รับการอนุมัติ",
-                            description=f"ข้อมูลการลงทะเบียนของ {member.mention}",
-                            color=discord.Color.green(),
-                            timestamp=datetime.now()
-                        )
-                        approved_embed.add_field(name="ชื่อในเกม", value=user_data['in_game_name'], inline=False)
-                        approved_embed.add_field(name="Steam ID", value=user_data['steam_id'], inline=False)
-                        approved_embed.add_field(name="อาชีพที่สนใจ", value=user_data['profession'], inline=False)
-                        approved_embed.add_field(name="วิธีหาทอง", value=user_data['gold_methods'], inline=False)
-                        approved_embed.add_field(name="โซนต้องห้าม", value=user_data['server_rules'], inline=False)
-                        approved_embed.set_footer(text=f"อนุมัติโดย {interaction.user.display_name}")
-                        
-                        # แจ้งเตือนผู้ใช้ว่าได้รับการอนุมัติ
-                        try:
-                            await member.send(
-                                "ยินดีด้วย! คำขอลงทะเบียนของคุณได้รับการอนุมัติแล้ว\n"
-                                "คุณสามารถเข้าร่วมเซิร์ฟเวอร์ได้ทันที https://discord.com/channels/1360583634481975327/1374821568839942258 ",
-                                embed=approved_embed
-                            )
-                        except:
-                            pass  # อาจไม่สามารถส่งข้อความส่วนตัวได้
-                        
-                        # ส่งข้อมูลที่อนุมัติไปยังช่องแอดมินก่อนลบ
-                        admin_channel = bot.get_channel(ADMIN_CHANNEL_ID)
-                        if admin_channel:
-                            await admin_channel.send(
-                                f"✅ การลงทะเบียนของ {member.mention} ได้รับการอนุมัติโดย {interaction.user.mention}",
-                                embed=approved_embed
-                            )
-                        
-                        # ลบข้อมูลออกจากไฟล์
-                        del registrations[user_id_str]
-                        save_registrations(registrations)
-                        
-                        # ลบข้อความรอยืนยันเดิม
-                        await interaction.message.delete()
-                        
-                        await interaction.response.send_message("อนุมัติผู้ใช้เรียบร้อยแล้ว", ephemeral=True)
-                    except Exception as e:
-                        await interaction.response.send_message(f"เกิดข้อผิดพลาด: {str(e)}", ephemeral=True)
-                else:
-                    await interaction.response.send_message("ไม่พบบทบาทผู้เล่น โปรดตรวจสอบการตั้งค่า", ephemeral=True)
-            else:
-                await interaction.response.send_message("ไม่พบผู้ใช้ในเซิร์ฟเวอร์", ephemeral=True)
-        else:
-            await interaction.response.send_message("ไม่พบข้อมูลการลงทะเบียนของผู้ใช้นี้", ephemeral=True)
-    
-    # ฟังก์ชันสำหรับดำเนินการปฏิเสธหลังจากยืนยันแล้ว (พร้อมเหตุผล)
-    async def perform_reject_with_reason(self, interaction, reason):
-        """ปฏิเสธผู้ใช้พร้อมเหตุผลและลบข้อมูลเก่า"""
-        registrations = load_registrations()
-        user_id_str = str(self.user_id)
-        
-        if user_id_str in registrations:
-            # แจ้งเตือนผู้ใช้ว่าถูกปฏิเสธพร้อมเหตุผล
-            guild = interaction.guild
-            member = guild.get_member(self.user_id)
-            
-            if member:
-                try:
-                    reject_embed = discord.Embed(
-                        title="❌ การลงทะเบียนไม่ได้รับการอนุมัติ",
-                        description="ขออภัย คำขอลงทะเบียนของคุณไม่ได้รับการอนุมัติ",
-                        color=discord.Color.red()
-                    )
-                    reject_embed.add_field(
-                        name="เหตุผล",
-                        value=reason,
-                        inline=False
-                    )
-                    reject_embed.add_field(
-                        name="ข้อแนะนำ",
-                        value="กรุณาแก้ไขตามเหตุผลข้างต้นและส่งแบบฟอร์มลงทะเบียนใหม่ที่ช่อง <#1361242784509726791>",
-                        inline=False
-                    )
-                    
-                    await member.send(embed=reject_embed)
-                except discord.Forbidden:
-                    # ไม่สามารถส่ง DM ให้ผู้ใช้ได้
-                    pass
-            
-            # ลบข้อมูลออกจากไฟล์
-            del registrations[user_id_str]
-            save_registrations(registrations)
-            
-            # สร้าง embed สำหรับแสดงเหตุผลการปฏิเสธ
-            reject_info_embed = discord.Embed(
-                title="❌ การลงทะเบียนถูกปฏิเสธ",
-                description=f"การลงทะเบียนของ <@{self.user_id}> ถูกปฏิเสธโดย {interaction.user.mention}",
-                color=discord.Color.red()
-            )
-            reject_info_embed.add_field(
-                name="เหตุผลการปฏิเสธ",
-                value=reason,
-                inline=False
-            )
-            
-            # ปรับปรุงข้อความทีมงาน
-            try:
-                await interaction.message.edit(
-                    content="",
-                    embed=reject_info_embed,
-                    view=None
-                )
-                await interaction.followup.send("ปฏิเสธผู้ใช้เรียบร้อยแล้ว และส่งเหตุผลให้ผู้ใช้แล้ว", ephemeral=True)
-            except Exception as e:
-                print(f"Error updating rejection message: {e}")
-        else:
-            await interaction.followup.send("ไม่พบข้อมูลการลงทะเบียนของผู้ใช้นี้", ephemeral=True)    
 
 @bot.event
 async def on_ready():
