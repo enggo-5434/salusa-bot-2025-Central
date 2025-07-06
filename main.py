@@ -123,15 +123,8 @@ async def on_member_join(member):
 class RegistrationForm(ui.Modal, title="ลงทะเบียนผู้เล่น SALUSA"):
     steam_id = ui.TextInput(label="Steam ID", placeholder="กรุณากรอก Steam ID ของคุณ", required=True)
     character_name = ui.TextInput(label="ชื่อตัวละคร", placeholder="กรุณากรอกชื่อตัวละคร", required=True)
-    player_type = ui.Select(
-        placeholder="เลือกประเภทผู้เล่น",
-        min_values=1,
-        max_values=1,
-        options=[
-            SelectOption(label="PvP", value="PvP"),
-            SelectOption(label="PvE", value="PvE")
-        ]
-    )
+    player_type = ui.TextInput(label="ประเภทผู้เล่น (PVP หรือ PVE)", placeholder="กรุณาพิมพ์ PVP หรือ PVE", required=True)
+
 
     async def on_submit(self, interaction: discord.Interaction):
         try:
