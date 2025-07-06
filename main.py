@@ -125,7 +125,6 @@ class RegistrationForm(ui.Modal, title="ลงทะเบียนผู้เ�
     character_name = ui.TextInput(label="ชื่อตัวละคร", placeholder="กรุณากรอกชื่อตัวละคร", required=True)
     player_type = ui.TextInput(label="ประเภทผู้เล่น (PVP หรือ PVE)", placeholder="กรุณาพิมพ์ PVP หรือ PVE", required=True)
 
-
 async def on_submit(self, interaction: discord.Interaction):
     try:
         data = {
@@ -140,17 +139,17 @@ async def on_submit(self, interaction: discord.Interaction):
         registrations[str(interaction.user.id)] = data
         save_registrations(registrations)
 
-        # ตอบกลับ interaction ทันที
+        # ตอบ interaction ก่อน
         await interaction.response.send_message("ลงทะเบียนเรียบร้อยแล้ว! คุณได้รับบทบาทผู้เล่นแล้ว", ephemeral=True)
 
-        # ส่ง DM ขอบคุณ (ไม่จำเป็นต้องรอ)
+        # ส่ง DM
         try:
             await interaction.user.send(
                 f"ขอบคุณสำหรับการลงทะเบียน!\nSteam ID: {data['steam_id']}\n"
                 f"ชื่อตัวละคร: {data['character_name']}\nประเภทผู้เล่น: {data['player_type']}"
             )
-        except:
-            pass
+        except Exception as e:
+            print(f"ส่ง DM ไม่สำเร็จ: {e}")
 
         # แจ้งแอดมิน
         admin_channel = bot.get_channel(ADMIN_CHANNEL_ID)
@@ -162,7 +161,7 @@ async def on_submit(self, interaction: discord.Interaction):
             embed.set_footer(text=f"ลงทะเบียนเมื่อ {data['timestamp']}")
             await admin_channel.send(embed=embed)
 
-        # เพิ่ม Role และตั้งชื่อเล่น
+        # เพิ่ม Role และเปลี่ยนชื่อเล่น
         guild = interaction.guild or (await bot.fetch_guild(interaction.guild_id))
         member = guild.get_member(interaction.user.id)
         if member is None:
@@ -170,7 +169,6 @@ async def on_submit(self, interaction: discord.Interaction):
                 member = await guild.fetch_member(interaction.user.id)
             except Exception as e:
                 print(f"ไม่พบสมาชิก: {e}")
-                await interaction.response.send_message("ไม่สามารถค้นหาสมาชิกในเซิร์ฟเวอร์ได้", ephemeral=True)
                 return
 
         player_role = guild.get_role(PLAYER_ROLE_ID)
@@ -189,7 +187,7 @@ async def on_submit(self, interaction: discord.Interaction):
 
     except Exception as e:
         print(f"Error processing registration: {str(e)}")
-        # ตอบกลับ interaction เฉพาะถ้ายังไม่ได้ตอบ
+        # ตอบ interaction เฉพาะถ้ายังไม่ได้ตอบ
         if not interaction.response.is_done():
             try:
                 await interaction.response.send_message("เกิดข้อผิดพลาดในการลงทะเบียน โปรดลองใหม่อีกครั้ง", ephemeral=True)
