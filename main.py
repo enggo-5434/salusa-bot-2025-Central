@@ -166,8 +166,15 @@ class RegistrationForm(ui.Modal, title="ลงทะเบียนผู้เ�
             # ตรวจสอบ Steam
             steam_profile = get_steam_profile(self.steam_id.value.strip())
             if steam_profile:
+                steam_info = (
+                    f"ชื่อ: {steam_profile['personaname']}\n"
+                    f"SteamID: {steam_profile['steamid']}\n"
+                    f"ประเทศ: {steam_profile['country']}\n"
+                    f"โปรไฟล์: {steam_profile['profileurl']}"
+                )
                 await report_to_admin(interaction.client, f"ตรวจสอบ Steam สำเร็จ: {steam_profile['personaname']} ({steam_profile['steamid']})")
             else:
+                steam_info = "ไม่พบข้อมูล Steam หรือ Steam ID ไม่ถูกต้อง"
                 await report_to_admin(interaction.client, "ตรวจสอบ Steam ไม่สำเร็จ หรือ Steam API Key ไม่ถูกต้อง")
 
             # ส่ง Embed ไปที่ห้องแอดมิน
