@@ -1,6 +1,8 @@
 import discord
 from discord import ui
 from discord.ext import commands
+from PIL import Image, ImageDraw, ImageFont
+from io import BytesIO
 import os
 import requests
 
@@ -12,7 +14,7 @@ bot = commands.Bot(command_prefix='/', intents=intents)
 
 ADMIN_CHANNEL_ID = 1361241867798446171
 REGISTER_CHANNEL_ID = 1361242784509726791
-
+WELCOME_CHANNEL_ID = 1375102199327363083
 NEWBIE_ROLE_ID = 1361182119069749310
 PLAYER_ROLE_ID = 1361186568416657593
 PVP_ROLE_ID = 1391706430339547158
@@ -37,12 +39,70 @@ def get_steam_profile(steam_id64):
             }
     return None
 
+async def create_welcome_banner(member):
+    # โหลดรูปโปรไฟล์ของสมาชิก
+    avatar_url = member.avatar.url if member.avatar else member.default_avatar.url
+    avatar_response = requests.get(avatar_url)
+    avatar_image = Image.open(BytesIO(avatar_response.content)).convert('RGBA')
+    avatar_size = 255
+    mask_size = 255
+
+    # ปรับขนาดรูปโปรไฟล์และทำให้เป็นวงกลม
+    avatar_image = avatar_image.resize((avatar_size, avatar_size))
+    mask = Image.new('L', (255, 255), 0)
+    draw = ImageDraw.Draw(mask)
+    draw.ellipse((0, 0, mask_size, mask_size), fill=255)
+
+    # โหลดแม่แบบแบนเนอร์ (ตรวจสอบให้มีไฟล์ welcome_SalusaBG2.png ในโปรเจกต์)
+    try:
+        template = Image.open("welcome_SalusaBG2.png").convert('RGBA')
+    except FileNotFoundError:
+        template = Image.new('RGBA', (1024, 500), (47, 49, 54, 255))
+
+    # วางรูปโปรไฟล์ในวงกลมลงบนแบนเนอร์
+    avatar_with_mask = Image.new('RGBA', (mask_size, mask_size))
+    avatar_with_mask.paste(avatar_image, (0, 0), mask)
+    pos_x = 512 - (mask_size // 2)
+    template.paste(avatar_with_mask, (pos_x, 70), avatar_with_mask)
+
+    # เพิ่มข้อความต้อนรับและชื่อผู้ใช้
+    draw = ImageDraw.Draw(template)
+    try:
+        title_font = ImageFont.truetype("NotoSans-Regular.ttf", 48)
+        user_font = ImageFont.truetype("NotoSans-Regular.ttf", 36)
+        watermark_font = ImageFont.truetype("NotoSans-Regular.ttf", 10)
+    except IOError:
+        title_font = ImageFont.load_default()
+        user_font = ImageFont.load_default()
+        watermark_font = ImageFont.load_default()
+
+    draw.text((512, 365), "Welcome into SALUSA", fill=(255, 255, 255, 255), font=title_font, anchor="mm")
+    draw.text((512, 420), f"{member.display_name}", fill=(230, 126, 32, 255), font=user_font, anchor="mm")
+    watermark_text = "©2025 All Rights Reserved, Salusa"
+    watermark_color = (255, 255, 255, 255)
+    watermark_x = template.width // 2
+    watermark_y = template.height - 20
+    draw.text((watermark_x, watermark_y), watermark_text, fill=watermark_color, font=watermark_font, anchor="ms")
+
+    buffer = BytesIO()
+    template.save(buffer, format='PNG')
+    buffer.seek(0)
+    return discord.File(buffer, filename='welcome.png')
+
 @bot.event
 async def on_member_join(member):
     guild = member.guild
     role = guild.get_role(NEWBIE_ROLE_ID)
     if role:
         await member.add_roles(role, reason="สมาชิกใหม่เข้าร่วมเซิร์ฟเวอร์")
+    welcome_channel = bot.get_channel(WELCOME_CHANNEL_ID)
+    if welcome_channel and not member.bot:
+        welcome_banner = await create_welcome_banner(member)
+        await welcome_channel.send(
+            f"**ยินดีต้อนรับ {member.mention} สู่ SALUSA!** 🎉\n"
+            f"กรุณาเข้าไปที่ <#{REGISTER_CHANNEL_ID}> เพื่อลงทะเบียนเข้าร่วมเซิร์ฟเวอร์",
+            file=welcome_banner
+        )
 
 class RegistrationForm(ui.Modal, title="ลงทะเบียนผู้เล่น SALUSA"):
     steam_id = ui.TextInput(label="Steam ID", required=True)
