@@ -133,6 +133,7 @@ class RegistrationForm(ui.Modal, title="ลงทะเบียนผู้เ�
 
     async def on_submit(self, interaction: discord.Interaction):
         try:
+            await interaction.response.defer(ephemeral=True)  # สำคัญ! ป้องกัน interaction timeout
             guild = interaction.guild
             member = interaction.user
             newbie_role = guild.get_role(NEWBIE_ROLE_ID)
@@ -192,8 +193,8 @@ class RegistrationForm(ui.Modal, title="ลงทะเบียนผู้เ�
                 embed.set_footer(text=f"ลงทะเบียนโดย {interaction.user.display_name}")
                 await admin_channel.send(embed=embed)
 
-            # ตอบกลับผู้ใช้ (ephemeral)
-            await interaction.response.send_message(
+            # ตอบกลับผู้ใช้ (ใช้ followup.send)
+            await interaction.followup.send(
                 "ลงทะเบียนเรียบร้อยแล้ว! ข้อมูลของคุณถูกส่งไปยังแอดมินแล้ว",
                 ephemeral=True
             )
@@ -206,14 +207,7 @@ class RegistrationForm(ui.Modal, title="ลงทะเบียนผู้เ�
 
         except Exception as e:
             await report_to_admin(interaction.client, f"เกิดข้อผิดพลาด: {str(e)}")
-            try:
-                if not interaction.response.is_done():
-                    await interaction.response.send_message(
-                        "เกิดข้อผิดพลาดในการลงทะเบียน โปรดลองใหม่อีกครั้ง",
-                        ephemeral=True
-                    )
-            except Exception:
-                pass  # ป้องกัน error ซ้อนซ้อน  
+            # ไม่ต้องตอบ interaction ซ้ำ ถ้าเกิด error
 
 class RegisterButton(discord.ui.View):
     def __init__(self):
