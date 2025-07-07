@@ -13,6 +13,7 @@ intents.message_content = True
 bot = commands.Bot(command_prefix='/', intents=intents)
 
 ADMIN_CHANNEL_ID = 1361241867798446171
+BOTCONSOLE_CHANNEL_ID = 1391816083136319659
 REGISTER_CHANNEL_ID = 1361242784509726791
 WELCOME_CHANNEL_ID = 1375102199327363083
 NEWBIE_ROLE_ID = 1361182119069749310
@@ -43,6 +44,11 @@ from PIL import Image, ImageDraw, ImageFont
 from io import BytesIO
 import requests
 import discord
+
+async def report_to_admin(bot, message):
+    admin_channel = bot.get_channel(BOTCONSOLE_CHANNEL_ID)
+    if admin_channel:
+        await admin_channel.send(message)
 
 async def create_welcome_banner(member):
     # โหลดเลเยอร์ 1 (พื้นหลัง)
@@ -103,13 +109,14 @@ async def create_welcome_banner(member):
     buffer.seek(0)
     return discord.File(buffer, filename='welcome.png')
 
-
 @bot.event
 async def on_member_join(member):
     guild = member.guild
     role = guild.get_role(NEWBIE_ROLE_ID)
     if role:
         await member.add_roles(role, reason="สมาชิกใหม่เข้าร่วมเซิร์ฟเวอร์")
+        await report_to_admin(bot, f"สมาชิกใหม่: {member} (ID: {member.id}) เข้าร่วมเซิร์ฟเวอร์ และได้รับ role newbie")
+
     welcome_channel = bot.get_channel(WELCOME_CHANNEL_ID)
     if welcome_channel and not member.bot:
         welcome_banner = await create_welcome_banner(member)
@@ -124,18 +131,10 @@ class RegistrationForm(ui.Modal, title="ลงทะเบียนผู้เ�
     character_name = ui.TextInput(label="ชื่อตัวละคร", required=True)
     player_type = ui.TextInput(label="ประเภทผู้เล่น (PVP หรือ PVE)", required=True)
 
-    async def validate(self, interaction: discord.Interaction) -> bool:
-        pt = self.player_type.value.strip().lower()
-        if pt not in ["pvp", "pve"]:
-            self.player_type.error = "กรุณากรอกเฉพาะ PVP หรือ PVE เท่านั้น"
-            return False
-        return True
-        
     async def on_submit(self, interaction: discord.Interaction):
         try:
             guild = interaction.guild
             member = interaction.user
-
             newbie_role = guild.get_role(NEWBIE_ROLE_ID)
             player_role = guild.get_role(PLAYER_ROLE_ID)
             pvp_role = guild.get_role(PVP_ROLE_ID)
@@ -144,30 +143,32 @@ class RegistrationForm(ui.Modal, title="ลงทะเบียนผู้เ�
             # ถอด role สมาชิกใหม่
             if newbie_role in member.roles:
                 await member.remove_roles(newbie_role, reason="ลงทะเบียนสำเร็จ")
+                await report_to_admin(interaction.client, f"ลบ role 'newbie' จาก {member.display_name}")
+
             # เพิ่ม role ผู้เล่น
             if player_role and player_role not in member.roles:
                 await member.add_roles(player_role, reason="ลงทะเบียนสำเร็จ")
+                await report_to_admin(interaction.client, f"เพิ่ม role 'player' ให้กับ {member.display_name}")
+
             # เพิ่ม role PVP/PVE
             player_type_value = self.player_type.value.strip().lower()
             if player_type_value == "pvp" and pvp_role and pvp_role not in member.roles:
                 await member.add_roles(pvp_role, reason="ลงทะเบียนเป็น PVP")
+                await report_to_admin(interaction.client, f"เพิ่ม role 'PVP' ให้กับ {member.display_name}")
             elif player_type_value == "pve" and pve_role and pve_role not in member.roles:
                 await member.add_roles(pve_role, reason="ลงทะเบียนเป็น PVE")
+                await report_to_admin(interaction.client, f"เพิ่ม role 'PVE' ให้กับ {member.display_name}")
+
             # เปลี่ยน nickname เป็นชื่อตัวละคร
-                await member.edit(nick=self.character_name.value.strip(), reason="เปลี่ยนชื่อเล่นเป็นชื่อตัวละคร")
+            await member.edit(nick=self.character_name.value.strip(), reason="เปลี่ยนชื่อเล่นเป็นชื่อตัวละคร")
+            await report_to_admin(interaction.client, f"เปลี่ยน nickname ของ {member.display_name} เป็น {self.character_name.value.strip()}")
 
             # ตรวจสอบ Steam
             steam_profile = get_steam_profile(self.steam_id.value.strip())
             if steam_profile:
-                steam_info = (
-                    f"**Steam Name:** {steam_profile['personaname']}\n"
-                    f"**SteamID64:** {steam_profile['steamid']}\n"
-                    f"**Profile URL:** {steam_profile['profileurl']}\n"
-                    f"**Real Name:** {steam_profile['realname']}\n"
-                    f"**Country:** {steam_profile['country']}\n"
-                )
+                await report_to_admin(interaction.client, f"ตรวจสอบ Steam สำเร็จ: {steam_profile['personaname']} ({steam_profile['steamid']})")
             else:
-                steam_info = "ไม่พบข้อมูล Steam ID หรือ Steam API Key ไม่ถูกต้อง"
+                await report_to_admin(interaction.client, "ตรวจสอบ Steam ไม่สำเร็จ หรือ Steam API Key ไม่ถูกต้อง")
 
             # ส่ง Embed ไปที่ห้องแอดมิน
             admin_channel = interaction.client.get_channel(ADMIN_CHANNEL_ID)
@@ -197,7 +198,7 @@ class RegistrationForm(ui.Modal, title="ลงทะเบียนผู้เ�
                 pass  # กรณีผู้ใช้ปิด DM
 
         except Exception as e:
-            print(f"Error processing registration: {str(e)}")
+            await report_to_admin(interaction.client, f"เกิดข้อผิดพลาด: {str(e)}")
             if not interaction.response.is_done():
                 await interaction.response.send_message(
                     "เกิดข้อผิดพลาดในการลงทะเบียน โปรดลองใหม่อีกครั้ง",
