@@ -39,34 +39,51 @@ def get_steam_profile(steam_id64):
             }
     return None
 
+from PIL import Image, ImageDraw, ImageFont
+from io import BytesIO
+import requests
+import discord
+
 async def create_welcome_banner(member):
-    # โหลดรูปโปรไฟล์ของสมาชิก
+    # โหลดเลเยอร์ 1 (พื้นหลัง)
+    try:
+        layer1 = Image.open("welcome_Salusa_Layer1.png").convert('RGBA')
+    except FileNotFoundError:
+        layer1 = Image.new('RGBA', (1024, 500), (47, 49, 54, 255))
+
+    base = layer1.copy()
+
+    # โหลดและวางรูปโปรไฟล์ผู้ใช้ (วงกลม)
     avatar_url = member.avatar.url if member.avatar else member.default_avatar.url
     avatar_response = requests.get(avatar_url)
     avatar_image = Image.open(BytesIO(avatar_response.content)).convert('RGBA')
     avatar_size = 255
-    mask_size = 255
-
-    # ปรับขนาดรูปโปรไฟล์และทำให้เป็นวงกลม
+    mask = Image.new('L', (avatar_size, avatar_size), 0)
+    draw_mask = ImageDraw.Draw(mask)
+    draw_mask.ellipse((0, 0, avatar_size, avatar_size), fill=255)
     avatar_image = avatar_image.resize((avatar_size, avatar_size))
-    mask = Image.new('L', (255, 255), 0)
-    draw = ImageDraw.Draw(mask)
-    draw.ellipse((0, 0, mask_size, mask_size), fill=255)
+    avatar_circle = Image.new('RGBA', (avatar_size, avatar_size))
+    avatar_circle.paste(avatar_image, (0, 0), mask)
+    pos_x = 512 - (avatar_size // 2)
+    pos_y = 70
+    base.paste(avatar_circle, (pos_x, pos_y), avatar_circle)
 
-    # โหลดแม่แบบแบนเนอร์ (ตรวจสอบให้มีไฟล์ welcome_SalusaBG2.png ในโปรเจกต์)
+    # โหลดและซ้อนทับเลเยอร์ 2
     try:
-        template = Image.open("welcome_SalusaBG2.png").convert('RGBA')
+        layer2 = Image.open("welcome_Salusa_Layer2.png").convert('RGBA')
+        base = Image.alpha_composite(base, layer2)
     except FileNotFoundError:
-        template = Image.new('RGBA', (1024, 500), (47, 49, 54, 255))
+        pass  # ข้ามถ้าไม่มีไฟล์
 
-    # วางรูปโปรไฟล์ในวงกลมลงบนแบนเนอร์
-    avatar_with_mask = Image.new('RGBA', (mask_size, mask_size))
-    avatar_with_mask.paste(avatar_image, (0, 0), mask)
-    pos_x = 512 - (mask_size // 2)
-    template.paste(avatar_with_mask, (pos_x, 70), avatar_with_mask)
+    # โหลดและซ้อนทับเลเยอร์ 3
+    try:
+        layer3 = Image.open("welcome_Salusa_Layer3.png").convert('RGBA')
+        base = Image.alpha_composite(base, layer3)
+    except FileNotFoundError:
+        pass  # ข้ามถ้าไม่มีไฟล์
 
     # เพิ่มข้อความต้อนรับและชื่อผู้ใช้
-    draw = ImageDraw.Draw(template)
+    draw = ImageDraw.Draw(base)
     try:
         title_font = ImageFont.truetype("NotoSans-Regular.ttf", 48)
         user_font = ImageFont.truetype("NotoSans-Regular.ttf", 36)
@@ -77,17 +94,15 @@ async def create_welcome_banner(member):
         watermark_font = ImageFont.load_default()
 
     draw.text((512, 365), "Welcome into SALUSA", fill=(255, 255, 255, 255), font=title_font, anchor="mm")
-    draw.text((512, 420), f"{member.display_name}", fill=(230, 126, 32, 255), font=user_font, anchor="mm")
+    draw.text((512, 420), f"{member.display_name}", fill=(255, 237, 223, 255), font=user_font, anchor="mm")
     watermark_text = "©2025 All Rights Reserved, Salusa"
-    watermark_color = (255, 255, 255, 255)
-    watermark_x = template.width // 2
-    watermark_y = template.height - 20
-    draw.text((watermark_x, watermark_y), watermark_text, fill=watermark_color, font=watermark_font, anchor="ms")
+    draw.text((base.width // 2, base.height - 20), watermark_text, fill=(255, 255, 255, 255), font=watermark_font, anchor="ms")
 
     buffer = BytesIO()
-    template.save(buffer, format='PNG')
+    base.save(buffer, format='PNG')
     buffer.seek(0)
     return discord.File(buffer, filename='welcome.png')
+
 
 @bot.event
 async def on_member_join(member):
