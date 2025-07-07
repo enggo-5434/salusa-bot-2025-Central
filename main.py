@@ -206,12 +206,14 @@ class RegistrationForm(ui.Modal, title="ลงทะเบียนผู้เ�
 
         except Exception as e:
             await report_to_admin(interaction.client, f"เกิดข้อผิดพลาด: {str(e)}")
-            if not interaction.response.is_done():
-                await interaction.response.send_message(
-                    "เกิดข้อผิดพลาดในการลงทะเบียน โปรดลองใหม่อีกครั้ง",
-                    ephemeral=True
-                )
-        pass    
+            try:
+                if not interaction.response.is_done():
+                    await interaction.response.send_message(
+                        "เกิดข้อผิดพลาดในการลงทะเบียน โปรดลองใหม่อีกครั้ง",
+                        ephemeral=True
+                    )
+            except Exception:
+                pass  # ป้องกัน error ซ้อนซ้อน  
 
 class RegisterButton(discord.ui.View):
     def __init__(self):
