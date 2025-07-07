@@ -153,6 +153,8 @@ class RegistrationForm(ui.Modal, title="ลงทะเบียนผู้เ�
                 await member.add_roles(pvp_role, reason="ลงทะเบียนเป็น PVP")
             elif player_type_value == "pve" and pve_role and pve_role not in member.roles:
                 await member.add_roles(pve_role, reason="ลงทะเบียนเป็น PVE")
+            # เปลี่ยน nickname เป็นชื่อตัวละคร
+                await member.edit(nick=self.character_name.value.strip(), reason="เปลี่ยนชื่อเล่นเป็นชื่อตัวละคร")
 
             # ตรวจสอบ Steam
             steam_profile = get_steam_profile(self.steam_id.value.strip())
