@@ -2,6 +2,7 @@ import discord
 from discord import ui
 from discord.ext import commands
 import os
+import requests
 
 # ตั้งค่า Intents
 intents = discord.Intents.default()
@@ -18,6 +19,25 @@ NEWBIE_ROLE_ID = 1361182119069749310         # สำหรับสมาชิ
 PLAYER_ROLE_ID = 1361186568416657593         # สำหรับผู้เล่นที่ลงทะเบียนแล้ว
 PVP_ROLE_ID = 1391706430339547158            # สำหรับสาย PVP
 PVE_ROLE_ID = 1391706869671661659            # สำหรับสาย PVE
+
+STEAM_API_KEY = os.getenv("63DED42DF375D43C4A5C77EEA75F2E81")  # ตั้งค่า Steam API Key ใน Environment Variable
+
+def get_steam_profile(steam_id64):
+    url = f"https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v2/?key={STEAM_API_KEY}&steamids={steam_id64}"
+    response = requests.get(url)
+    if response.status_code == 200:
+        data = response.json()
+        if 'response' in data and 'players' in data['response'] and len(data['response']['players']) > 0:
+            player = data['response']['players'][0]
+            return {
+                'steamid': player.get('steamid'),
+                'personaname': player.get('personaname'),
+                'profileurl': player.get('profileurl'),
+                'avatar': player.get('avatarfull'),
+                'realname': player.get('realname', 'N/A'),
+                'country': player.get('loccountrycode', 'N/A')
+            }
+    return None
 
 # ------------------ เพิ่ม Role ให้สมาชิกใหม่ ------------------
 @bot.event
@@ -73,11 +93,26 @@ class RegistrationForm(ui.Modal, title="ลงทะเบียนผู้เ�
                     title="การลงทะเบียนใหม่",
                     color=discord.Color.blue()
                 )
-                embed.add_field(name="Steam ID", value=self.steam_id.value, inline=False)
+                embed.add_field(name="Steam ID (ที่กรอก)", value=self.steam_id.value, inline=False)
                 embed.add_field(name="ชื่อตัวละคร", value=self.character_name.value, inline=False)
                 embed.add_field(name="ประเภทผู้เล่น", value=self.player_type.value.strip().upper(), inline=False)
+                embed.add_field(name="Discord User", value=f"{interaction.user} (ID: {interaction.user.id})", inline=False)
+                embed.add_field(name="ข้อมูล Steam ที่ตรวจสอบ", value=steam_info, inline=False)
                 embed.set_footer(text=f"ลงทะเบียนโดย {interaction.user.display_name}")
                 await admin_channel.send(embed=embed)
+
+            # ตอบกลับผู้ใช้ (ephemeral)
+            await interaction.response.send_message(
+                "ลงทะเบียนเรียบร้อยแล้ว! ข้อมูลของคุณถูกส่งไปยังแอดมินแล้ว",
+                ephemeral=True
+            )
+
+            # ส่ง DM ยืนยัน
+            try:
+                await member.send("การลงทะเบียนสำเร็จ ยินดีต้อนรับเข้าสู่ SALUSA")
+            except Exception:
+                pass  # กรณีผู้ใช้ปิด DM
+
         except Exception as e:
             print(f"Error processing registration: {str(e)}")
             if not interaction.response.is_done():
