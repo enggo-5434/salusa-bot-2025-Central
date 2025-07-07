@@ -115,7 +115,7 @@ async def on_member_join(member):
     role = guild.get_role(NEWBIE_ROLE_ID)
     if role:
         await member.add_roles(role, reason="สมาชิกใหม่เข้าร่วมเซิร์ฟเวอร์")
-        await report_to_admin(bot, f"สมาชิกใหม่: {member} (ID: {member.id}) เข้าร่วมเซิร์ฟเวอร์ และได้รับ role newbie")
+        await report_to_admin(bot, f"สมาชิกใหม่: {member} (ID: {member.id}) เข้าร่วมเซิร์ฟเวอร์ และได้รับ role unverified")
 
     welcome_channel = bot.get_channel(WELCOME_CHANNEL_ID)
     if welcome_channel and not member.bot:
@@ -144,12 +144,12 @@ class RegistrationForm(ui.Modal, title="ลงทะเบียนผู้เ�
             # ถอด role สมาชิกใหม่
             if newbie_role in member.roles:
                 await member.remove_roles(newbie_role, reason="ลงทะเบียนสำเร็จ")
-                await report_to_admin(interaction.client, f"ลบ role 'newbie' จาก {member.display_name}")
+                await report_to_admin(interaction.client, f"ลบ role 'unverified' จาก {member.display_name}")
 
             # เพิ่ม role ผู้เล่น
             if player_role and player_role not in member.roles:
                 await member.add_roles(player_role, reason="ลงทะเบียนสำเร็จ")
-                await report_to_admin(interaction.client, f"เพิ่ม role 'player' ให้กับ {member.display_name}")
+                await report_to_admin(interaction.client, f"เพิ่ม role 'Verified' ให้กับ {member.display_name}")
 
             # เพิ่ม role PVP/PVE
             player_type_value = self.player_type.value.strip().lower()
