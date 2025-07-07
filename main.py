@@ -48,7 +48,15 @@ class RegistrationForm(ui.Modal, title="ลงทะเบียนผู้เ�
     steam_id = ui.TextInput(label="Steam ID", placeholder="กรุณากรอก Steam ID ของคุณ", required=True)
     character_name = ui.TextInput(label="ชื่อตัวละคร", placeholder="กรุณากรอกชื่อตัวละคร", required=True)
     player_type = ui.TextInput(label="ประเภทผู้เล่น (PVP หรือ PVE)", placeholder="กรุณาพิมพ์ PVP หรือ PVE เท่านั้น", required=True)
-
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        pt = self.player_type.value.strip().lower()
+        if pt not in ["pvp", "pve"]:
+            await interaction.response.send_message(
+                "กรุณากรอกประเภทผู้เล่นเป็น PVP หรือ PVE เท่านั้น", ephemeral=True
+            )
+            return
+        
     async def on_submit(self, interaction: discord.Interaction):
         try:
             guild = interaction.guild
@@ -92,7 +100,7 @@ class RegistrationForm(ui.Modal, title="ลงทะเบียนผู้เ�
                     title="การลงทะเบียนใหม่",
                     color=discord.Color.blue()
                 )
-                embed.add_field(name="Steam ID (ที่กรอก)", value=self.steam_id.value, inline=False)
+                embed.add_field(name="Steam ID", value=self.steam_id.value, inline=False)
                 embed.add_field(name="ชื่อตัวละคร", value=self.character_name.value, inline=False)
                 embed.add_field(name="ประเภทผู้เล่น", value=self.player_type.value.strip().upper(), inline=False)
                 embed.add_field(name="Discord User", value=f"{interaction.user} (ID: {interaction.user.id})", inline=False)
