@@ -65,7 +65,7 @@ async def create_welcome_banner(member):
     avatar_circle = Image.new('RGBA', (avatar_size, avatar_size))
     avatar_circle.paste(avatar_image, (0, 0), mask)
     pos_x = 512 - (avatar_size // 2)
-    pos_y = 70
+    pos_y = 67
     base.paste(avatar_circle, (pos_x, pos_y), avatar_circle)
 
     # โหลดและซ้อนทับเลเยอร์ 2
