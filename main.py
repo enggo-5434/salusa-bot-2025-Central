@@ -13,19 +13,60 @@ bot = commands.Bot(command_prefix='/', intents=intents)
 ADMIN_CHANNEL_ID = 1361241867798446171  # Channel ID ห้องแอดมิน
 REGISTER_CHANNEL_ID = 1361242784509726791  # Channel ID ห้องลงทะเบียน
 
+# Role IDs
+NEWBIE_ROLE_ID = 1361182119069749310         # สำหรับสมาชิกใหม่
+PLAYER_ROLE_ID = 1361186568416657593         # สำหรับผู้เล่นที่ลงทะเบียนแล้ว
+PVP_ROLE_ID = 1391706430339547158            # สำหรับสาย PVP
+PVE_ROLE_ID = 1391706869671661659            # สำหรับสาย PVE
+
+# ------------------ เพิ่ม Role ให้สมาชิกใหม่ ------------------
+@bot.event
+async def on_member_join(member):
+    guild = member.guild
+    role = guild.get_role(NEWBIE_ROLE_ID)
+    if role:
+        await member.add_roles(role, reason="สมาชิกใหม่เข้าร่วมเซิร์ฟเวอร์")
+
 # ------------------ Registration Modal ------------------
 
 class RegistrationForm(ui.Modal, title="ลงทะเบียนผู้เล่น SALUSA"):
     steam_id = ui.TextInput(label="Steam ID", placeholder="กรุณากรอก Steam ID ของคุณ", required=True)
     character_name = ui.TextInput(label="ชื่อตัวละคร", placeholder="กรุณากรอกชื่อตัวละคร", required=True)
-    player_type = ui.TextInput(label="ประเภทผู้เล่น (PVP หรือ PVE)", placeholder="กรุณาพิมพ์ PVP หรือ PVE", required=True)
+    player_type = ui.TextInput(label="ประเภทผู้เล่น (PVP หรือ PVE)", placeholder="กรุณาพิมพ์ PVP หรือ PVE เท่านั้น", required=True)
 
     async def on_submit(self, interaction: discord.Interaction):
         try:
+            # ถอด role สมาชิกใหม่ เพิ่ม role ผู้เล่น
+            guild = interaction.guild
+            member = interaction.user
+
+            newbie_role = guild.get_role(NEWBIE_ROLE_ID)
+            player_role = guild.get_role(PLAYER_ROLE_ID)
+            pvp_role = guild.get_role(PVP_ROLE_ID)
+            pve_role = guild.get_role(PVE_ROLE_ID)
+
+            # ถอด role สมาชิกใหม่ ถ้ามี
+            if newbie_role in member.roles:
+                await member.remove_roles(newbie_role, reason="ลงทะเบียนสำเร็จ")
+
+            # เพิ่ม role ผู้เล่น
+            if player_role and player_role not in member.roles:
+                await member.add_roles(player_role, reason="ลงทะเบียนสำเร็จ")
+
+            # ตรวจสอบประเภทผู้เล่น (ไม่สนตัวพิมพ์)
+            player_type_value = self.player_type.value.strip().lower()
+            if player_type_value == "pvp" and pvp_role and pvp_role not in member.roles:
+                await member.add_roles(pvp_role, reason="ลงทะเบียนเป็น PVP")
+            elif player_type_value == "pve" and pve_role and pve_role not in member.roles:
+                await member.add_roles(pve_role, reason="ลงทะเบียนเป็น PVE")
+
+            # ตอบกลับผู้ใช้
             await interaction.response.send_message(
                 "ลงทะเบียนเรียบร้อยแล้ว! ข้อมูลของคุณถูกส่งไปยังแอดมินแล้ว",
                 ephemeral=True
             )
+
+            # ส่ง Embed ไปที่ห้องแอดมิน
             admin_channel = interaction.client.get_channel(ADMIN_CHANNEL_ID)
             if admin_channel:
                 embed = discord.Embed(
@@ -71,6 +112,8 @@ async def on_ready():
             description=(
                 "ยินดีต้อนรับสู่เซิร์ฟเวอร์ SALUSA!\n"
                 "โปรดอ่านกฎและข้อมูลที่เกี่ยวข้องก่อนลงทะเบียน\n"
+                "สำหรับผู้เล่น PvP โปรดอ่าน https://discord.com/channels/1360583634481975327/1390025183149949028 \n"
+                "สำหรับผู้เล่น PvE โปรดอ่าน https://discord.com/channels/1360583634481975327/1390025018167267368 \n"
                 "กรุณากดปุ่ม 'ลงทะเบียนที่นี่' ด้านล่าง"
             ),
             color=discord.Color.blue()
