@@ -20,7 +20,7 @@ PLAYER_ROLE_ID = 1361186568416657593         # สำหรับผู้เล
 PVP_ROLE_ID = 1391706430339547158            # สำหรับสาย PVP
 PVE_ROLE_ID = 1391706869671661659            # สำหรับสาย PVE
 
-STEAM_API_KEY = os.getenv("63DED42DF375D43C4A5C77EEA75F2E81")  # ตั้งค่า Steam API Key ใน Environment Variable
+STEAM_API_KEY = os.getenv("STEAM_API_KEY")  # ตั้งค่า Steam API Key ใน Environment Variable
 
 def get_steam_profile(steam_id64):
     url = f"https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v2/?key={STEAM_API_KEY}&steamids={steam_id64}"
@@ -55,6 +55,8 @@ class RegistrationForm(ui.Modal, title="ลงทะเบียนผู้เ�
     player_type = ui.TextInput(label="ประเภทผู้เล่น (PVP หรือ PVE)", placeholder="กรุณาพิมพ์ PVP หรือ PVE เท่านั้น", required=True)
 
     async def on_submit(self, interaction: discord.Interaction):
+        guild = interaction.guild
+        member = interaction.user
         try:
             # ถอด role สมาชิกใหม่ เพิ่ม role ผู้เล่น
             guild = interaction.guild
